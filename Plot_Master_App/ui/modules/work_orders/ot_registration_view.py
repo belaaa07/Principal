@@ -1,18 +1,20 @@
 import tkinter as tk
 from tkinter import messagebox
 from datetime import datetime
-# Importación necesaria para el Combobox y los widgets de estilo moderno
-from tkinter import ttk 
+from tkinter import ttk
 from dotenv import load_dotenv
 import os
 
-# --- MÓDULO DE INTEGRACIÓN CON SUPABASE ---
-# Importamos las funciones que interactuarán con la base de datos.
-from supabase_client import get_next_ot_number, find_client_by_ci_ruc, insert_client, insert_work_order, get_next_client_number
+# Integración con el servicio supabase
+from services.supabase_service import (
+    get_next_ot_number,
+    find_client_by_ci_ruc,
+    insert_client,
+    insert_work_order,
+    get_next_client_number,
+)
 
-# El código de conexión psycopg2 ya no es necesario, lo maneja supabase_client.py
-
-# Load environment variables from .env
+# Cargar variables de entorno si existen
 load_dotenv()
 
 # LISTA FIJA DE CIUDADES DEL DEPARTAMENTO CENTRAL DE PARAGUAY + OPCIÓN EXTRA ("Otro")
@@ -52,10 +54,12 @@ def guardar_cliente(ventana, nombre, ci_ruc, telefono, zona):
         messagebox.showerror("Error al Guardar", message)
 
 
-def abrir_modulo_registro_cliente():
-    """Crea y muestra la ventana del módulo de registro de clientes con estilo moderno."""
-    
-    registro_root = tk.Toplevel()
+def abrir_modulo_registro_cliente(parent=None):
+    """Crea y muestra la ventana del módulo de registro de clientes con estilo moderno.
+
+    parent: widget padre (Tk o Toplevel)
+    """
+    registro_root = tk.Toplevel(master=parent) if parent is not None else tk.Toplevel()
     registro_root.title("📝 Módulo de Registro de Clientes")
     registro_root.resizable(False, False)
     
@@ -242,11 +246,14 @@ Envío: {'Solicita Envío' if envio_status else 'No Solicita Envío'}
 
 
 # --- CONFIGURACIÓN DE LA VENTANA PRINCIPAL (Estilo Moderno) ---
-def crear_modulo_ot():
-    global root_principal
-    root_principal = tk.Tk() # Esta es la ventana principal de la aplicación
+def crear_modulo_ot(parent=None):
+    """Crea la ventana del módulo de OT como Toplevel y la muestra.
+
+    parent: widget padre (Tk o Toplevel)
+    """
+    root_principal = tk.Toplevel(master=parent) if parent is not None else tk.Toplevel()
     root_principal.title("🏷️ Módulo de Orden de Trabajo")
-    root_principal.resizable(False, False) 
+    root_principal.resizable(False, False)
 
     # --- Estilo Moderno (TTK) para OT ---
     style = ttk.Style()
@@ -349,9 +356,5 @@ def crear_modulo_ot():
     ttk.Button(root_principal, text="Guardar Orden de Trabajo", command=guardar_ot, 
               style='Accent.TButton').pack(pady=(5, 15))
 
-    root_principal.mainloop()
-
-# --- EJECUCIÓN DEL PROGRAMA ---
-
-if __name__ == "__main__":
-    crear_modulo_ot()
+    # No ejecutamos mainloop para permitir que el caller gestione la ventana
+    return root_principal

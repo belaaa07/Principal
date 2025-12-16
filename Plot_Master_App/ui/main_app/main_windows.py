@@ -103,15 +103,19 @@ class OrdenesFrame(ctk.CTkFrame):
 # CLASE 2: Aplicación Principal (App)
 # ==========================================================================
 
-class App(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-        
-        self.title("Plot Master - Aplicación Moderna")
-        self.state("zoomed") 
-        
-        self.grid_columnconfigure(1, weight=1) 
-        self.grid_rowconfigure(0, weight=1)
+class MainAppFrame(ctk.CTkFrame):
+    def __init__(self, parent, user_name: str = None):
+        super().__init__(parent, fg_color="transparent")
+        self.parent = parent
+        self.user_name = user_name or "Usuario"
+
+        # Make this frame expand to fill parent
+        self.grid(row=0, column=0, sticky="nsew")
+        try:
+            parent.grid_columnconfigure(0, weight=1)
+            parent.grid_rowconfigure(0, weight=1)
+        except Exception:
+            pass
 
         # ------------------------------------------------------------------
         # 2. Creación del Marco de Navegación (Sidebar)
@@ -133,9 +137,9 @@ class App(ctk.CTk):
         self.user_frame = ctk.CTkFrame(self.navigation_frame, fg_color="transparent")
         self.user_frame.grid(row=1, column=0, padx=10, pady=(10, 20), sticky="ew")
         self.user_label = ctk.CTkLabel(self.user_frame, 
-                                       text="👤  Nombre Usuario", 
-                                       anchor="w",
-                                       font=ctk.CTkFont(size=14, weight="normal"))
+                           text=f"👤  {self.user_name}", 
+                           anchor="w",
+                           font=ctk.CTkFont(size=14, weight="normal"))
         self.user_label.pack(fill="x")
         
         self.menu_separator = ctk.CTkLabel(self.navigation_frame, 
