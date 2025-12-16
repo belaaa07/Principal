@@ -1,4 +1,5 @@
 import customtkinter as ctk
+from ui.modules.work_orders.ot_registration_view import crear_modulo_ot
 
 # ==========================================================================
 # CLASE 1: Módulo de Órdenes de Trabajo (Contiene las Subpestañas)
@@ -8,9 +9,10 @@ class OrdenesFrame(ctk.CTkFrame):
     """
     Este módulo implementa las subpestañas: + Generar OT, Pendientes, Aprobados.
     """
-    def __init__(self, parent):
+    def __init__(self, parent, open_generar_callback=None):
         # El parent es self.main_content_frame de la clase App
         super().__init__(parent, fg_color="transparent") 
+        self.open_generar_callback = open_generar_callback
         
         # Configurar el grid interno para el sub-sidebar (columna 0) y el contenido (columna 1)
         self.grid_columnconfigure(1, weight=1)
@@ -50,7 +52,8 @@ class OrdenesFrame(ctk.CTkFrame):
         self.pendientes_frame = self._create_view_frame("TABLA: ÓRDENES PENDIENTES")
         self.aprobados_frame = self._create_view_frame("TABLA: ÓRDENES APROBADAS")
 
-        self.select_view_by_name("generar") # Inicia en Generar OT
+        # Inicia en la vista "generar" sin abrir ventanas externas
+        self.select_view_by_name("generar")
 
     def _create_sub_button(self, row, text, command_name):
         # Función auxiliar para crear botones de subpestaña
@@ -73,8 +76,23 @@ class OrdenesFrame(ctk.CTkFrame):
                              text=text, 
                              font=ctk.CTkFont(size=24, weight="bold"), 
                              text_color="#343638")
-        label.pack(padx=20, pady=20)
+        label.pack(padx=20, pady=(20, 10))
+
+        # Si es la vista de 'generar', añadimos botón que abre el módulo OT cuando el usuario lo solicita
+        if "GENERAR" in text.upper():
+            generar_btn = ctk.CTkButton(frame, text="Generar OT", fg_color="#5E835E", hover_color="#4B6B4B",
+                                        width=180, height=40, command=self._on_generar_pressed)
+            generar_btn.pack(pady=(10, 20))
         return frame
+
+    def _on_generar_pressed(self):
+        if callable(self.open_generar_callback):
+            try:
+                self.open_generar_callback()
+            except Exception:
+                crear_modulo_ot(parent=self.winfo_toplevel())
+        else:
+            crear_modulo_ot(parent=self.winfo_toplevel())
 
     def select_view_by_name(self, name):
         # Lógica de cambio de Subpestaña
@@ -109,20 +127,23 @@ class MainAppFrame(ctk.CTkFrame):
         self.parent = parent
         self.user_name = user_name or "Usuario"
 
-        # Make this frame expand to fill parent
+        # Make this frame expand to fill parent and set column weights
         self.grid(row=0, column=0, sticky="nsew")
         try:
             parent.grid_columnconfigure(0, weight=1)
             parent.grid_rowconfigure(0, weight=1)
         except Exception:
             pass
+        self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
         # ------------------------------------------------------------------
         # 2. Creación del Marco de Navegación (Sidebar)
         # ------------------------------------------------------------------
         
         self.navigation_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#343638") 
-        self.navigation_frame.grid(row=0, column=0, sticky="nsew")
+        self.navigation_frame.grid(row=0, column=0, sticky="ns")
         self.navigation_frame.grid_rowconfigure(8, weight=1)
 
         # ------------------------------------------------------------------
@@ -191,7 +212,8 @@ class MainAppFrame(ctk.CTkFrame):
         self.acceso_frame = self._create_module_frame("Módulo: Administrar Accesos")
         
         # INSTANCIAMOS EL MÓDULO CON SUBPESTAÑAS
-        self.ordenes_frame = OrdenesFrame(self.main_content_frame) # <-- ¡Conexión Directa!
+        # Pasamos un callback que abrirá el módulo de OT con el contexto de usuario (vendedor)
+        self.ordenes_frame = OrdenesFrame(self.main_content_frame, open_generar_callback=lambda: crear_modulo_ot(parent=self.parent, vendedor=self.user_name))
 
         # ------------------------------------------------------------------
         # 6. Inicialización y Lógica de Pestañas

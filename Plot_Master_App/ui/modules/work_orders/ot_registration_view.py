@@ -169,7 +169,7 @@ def validar_y_buscar(event=None):
         # Usamos after() para asegurar que el widget ya esté listo para recibir el foco.
         root_principal.after(100, lambda: registrar_button.focus_set())
         
-def guardar_ot():
+def guardar_ot(vendedor=None):
     """Función para recolectar, validar y guardar los datos de la OT."""
     try:
         valor_str = valor_var.get().replace('.', '').replace(',', '')
@@ -208,6 +208,9 @@ def guardar_ot():
             "forma_pago": forma_pago,
             "envio_status": bool(envio_status)
         }
+        # Añadir vendedor de sesión si está disponible (no editable en el formulario)
+        if vendedor:
+            datos_a_guardar["vendedor"] = vendedor
 
         # --- Lógica de guardado de OT en Supabase ---
         success, message = insert_work_order(datos_a_guardar)
@@ -234,7 +237,7 @@ Envío: {'Solicita Envío' if envio_status else 'No Solicita Envío'}
             
             # Reiniciar el formulario principal
             root_principal.destroy()
-            crear_modulo_ot() 
+            crear_modulo_ot()
         else:
             messagebox.showerror("Error al Guardar OT", message)
 
@@ -246,7 +249,7 @@ Envío: {'Solicita Envío' if envio_status else 'No Solicita Envío'}
 
 
 # --- CONFIGURACIÓN DE LA VENTANA PRINCIPAL (Estilo Moderno) ---
-def crear_modulo_ot(parent=None):
+def crear_modulo_ot(parent=None, vendedor=None):
     """Crea la ventana del módulo de OT como Toplevel y la muestra.
 
     parent: widget padre (Tk o Toplevel)
@@ -307,7 +310,6 @@ def crear_modulo_ot(parent=None):
     ttk.Label(form_frame, text="Fecha:").grid(row=1, column=2, sticky="w", padx=(10, 0), pady=5)
     ttk.Label(form_frame, textvariable=fecha_var).grid(row=1, column=3, sticky="w", pady=5)
 
-
     # --- FILA 2: CI | Ruc (Entrada y Búsqueda) ---
     ttk.Label(form_frame, text="CI | Ruc:").grid(row=2, column=0, sticky="w", pady=8)
     ci_ruc_entry = ttk.Entry(form_frame, textvariable=ci_ruc_var, width=15)
@@ -324,7 +326,7 @@ def crear_modulo_ot(parent=None):
     registrar_button = ttk.Button(form_frame, 
               text="Registrar Cliente",
               style='Accent.TButton', 
-              command=abrir_modulo_registro_cliente)
+              command=lambda: abrir_modulo_registro_cliente(parent=root_principal))
     registrar_button.grid(row=2, column=3, sticky="e", pady=8) 
 
     # Nombre del Cliente (Se mantiene abajo, en la fila 3)
@@ -354,8 +356,18 @@ def crear_modulo_ot(parent=None):
     ttk.Checkbutton(form_frame, variable=envio_var, onvalue=1, offvalue=0).grid(row=8, column=1, sticky="w")
     
     # Botón de Acción Principal (Mantiene el estilo Accent)
-    ttk.Button(root_principal, text="Guardar Orden de Trabajo", command=guardar_ot, 
+    ttk.Button(root_principal, text="Guardar Orden de Trabajo", command=lambda: guardar_ot(vendedor=vendedor), 
               style='Accent.TButton').pack(pady=(5, 15))
 
     # No ejecutamos mainloop para permitir que el caller gestione la ventana
+    # Asegurar modalidad si hay parent
+    try:
+        if parent:
+            root_principal.transient(parent)
+            root_principal.grab_set()
+            root_principal.focus_force()
+            root_principal.attributes('-topmost', True)
+    except Exception:
+        pass
+
     return root_principal

@@ -50,7 +50,8 @@ class LoginFrame(ctk.CTkFrame):
             messagebox.showerror("Error de Login", result)
 
     def _abrir_ventana_registro(self):
-        ventana_registro = ctk.CTkToplevel(self)
+        parent_toplevel = self.winfo_toplevel()
+        ventana_registro = ctk.CTkToplevel(parent_toplevel)
         ventana_registro.title("Regístrate en PLOT MASTER")
         ventana_registro.geometry("380x300")
         ventana_registro.resizable(False, False)
@@ -82,3 +83,12 @@ class LoginFrame(ctk.CTkFrame):
 
         ctk.CTkButton(ventana_registro, text="REGISTRAR", command=_registrar,
                       width=280, fg_color="#5E835E", hover_color="#4B6B4B").pack(pady=20)
+
+        # Asegurar que la ventana de registro sea modal y esté en primer plano
+        try:
+            ventana_registro.transient(parent_toplevel)
+            ventana_registro.grab_set()
+            ventana_registro.focus_force()
+            ventana_registro.attributes('-topmost', True)
+        except Exception:
+            pass

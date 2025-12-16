@@ -105,7 +105,7 @@ def insert_work_order(ot_data: dict):
     if not supabase: return False, "No hay conexión con la base de datos."
 
     try:
-        data, count = supabase.table('ordenes_trabajo').insert({
+        payload = {
             'ot_nro': ot_data['ot_nro'],
             'fecha_creacion': ot_data['fecha'],
             'cliente_ci_ruc': ot_data['ci_ruc'],
@@ -113,7 +113,12 @@ def insert_work_order(ot_data: dict):
             'sena': ot_data['sena'],
             'forma_pago': ot_data['forma_pago'],
             'solicita_envio': ot_data['envio_status']
-        }).execute()
+        }
+        # Añadir vendedor si se provee en ot_data
+        if 'vendedor' in ot_data and ot_data['vendedor']:
+            payload['vendedor'] = ot_data['vendedor']
+
+        data, count = supabase.table('ordenes_trabajo').insert(payload).execute()
         return True, "Orden de Trabajo guardada correctamente."
     except Exception as e:
         if 'duplicate key value violates unique constraint "ordenes_trabajo_pkey"' in str(e):

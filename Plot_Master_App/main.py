@@ -20,12 +20,7 @@ def main():
 
         # Crear la aplicación principal dentro del mismo root
         main_app = MainAppFrame(root, user_name=nombre)
-
-        # Reconfigurar el botón de "Órdenes" para abrir el módulo OT (Toplevel)
-        try:
-            main_app.ordenes_button.configure(command=lambda: crear_modulo_ot(parent=root))
-        except Exception:
-            pass
+        # No reasignar el botón 'Órdenes' aquí; la navegación mostrará el módulo
 
     # Centrar y mostrar el login
     login_frame = LoginFrame(root, on_success=on_login_success)
