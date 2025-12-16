@@ -251,6 +251,7 @@ def crear_modulo_ot(parent=None):
 
     parent: widget padre (Tk o Toplevel)
     """
+    global root_principal
     root_principal = tk.Toplevel(master=parent) if parent is not None else tk.Toplevel()
     root_principal.title("🏷️ Módulo de Orden de Trabajo")
     root_principal.resizable(False, False)

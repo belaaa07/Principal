@@ -1,6 +1,10 @@
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import hashlib
+import hmac
+import secrets
+from datetime import datetime
 
 # --- CONFIGURACIÓN INICIAL DEL CLIENTE SUPABASE ---
 
@@ -116,3 +120,92 @@ def insert_work_order(ot_data: dict):
             return False, f"La Orden de Trabajo Nro. {ot_data['ot_nro']} ya existe."
         print(f"Error al insertar OT: {e}")
         return False, f"Error inesperado al guardar la OT: {e}"
+
+
+# -----------------------------
+# Funciones para manejo de usuarios
+# Tabla propuesta: 'usuarios'
+# -----------------------------
+
+def _hash_password(password: str, salt: str = None) -> tuple:
+    """Devuelve (salt, password_hash) usando SHA256 con salt aleatorio si no se provee."""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    pw_bytes = password.encode('utf-8')
+    salt_bytes = salt.encode('utf-8')
+    hash_digest = hashlib.pbkdf2_hmac('sha256', pw_bytes, salt_bytes, 100_000)
+    return salt, hash_digest.hex()
+
+
+def _verify_password(password: str, salt: str, password_hash: str) -> bool:
+    _, new_hash = _hash_password(password, salt)
+    # Uso de hmac.compare_digest para evitar timing attacks
+    return hmac.compare_digest(new_hash, password_hash)
+
+
+def create_user(nombre: str, ci_ruc: str, password: str, email: str = None, estado: str = 'activo'):
+    """Crea un usuario en la tabla 'usuarios'. Retorna (True, mensaje) o (False, mensaje)."""
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+
+    salt, pw_hash = _hash_password(password)
+    try:
+        data = {
+            'nombre': nombre,
+            'ci_ruc': ci_ruc,
+            'password_hash': pw_hash,
+            'salt': salt,
+            'email': email,
+            'fecha_registro': datetime.utcnow().isoformat(),
+            'estado': estado
+        }
+        response = supabase.table('usuarios').insert(data).execute()
+        # supabase-py may return response.error or raise; check both
+        if hasattr(response, 'error') and response.error:
+            raise Exception(response.error)
+        return True, "Usuario registrado correctamente."
+    except Exception as e:
+        err_str = str(e).lower()
+        # Detección de duplicados en Supabase
+        if 'duplicate' in err_str or 'unique' in err_str:
+            return False, f"El usuario con CI/RUC '{ci_ruc}' ya existe."
+        # Detectar error RLS o permisos y devolver mensaje claro
+        if 'row-level security' in err_str or 'violates row-level security' in err_str or '42501' in err_str:
+            return False, "Permiso denegado por Row-Level Security (RLS). Configura una policy o usa la service_role key para realizar inserts." 
+        print(f"Error al crear usuario: {e}")
+        return False, f"Error inesperado al crear usuario: {e}"
+
+
+def get_user_by_ci_ruc(ci_ruc: str):
+    """Devuelve el registro del usuario (dict) o None si no existe."""
+    if not supabase:
+        return None
+    try:
+        response = supabase.table('usuarios').select('*').eq('ci_ruc', ci_ruc).limit(1).execute()
+        if response.data:
+            return response.data[0]
+        return None
+    except Exception as e:
+        # Devolver None y loguear; el caller debe manejar el mensaje al usuario
+        print(f"Error al obtener usuario: {e}")
+        return None
+
+
+def verify_user_credentials(ci_ruc: str, password: str):
+    """Verifica credenciales. Retorna (True, nombre) o (False, mensaje)."""
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+    try:
+        user = get_user_by_ci_ruc(ci_ruc)
+        if not user:
+            return False, "Usuario no encontrado."
+        salt = user.get('salt')
+        pw_hash = user.get('password_hash')
+        if not salt or not pw_hash:
+            return False, "Credenciales incompletas para el usuario."
+        if _verify_password(password, salt, pw_hash):
+            return True, user.get('nombre')
+        return False, "Contraseña incorrecta."
+    except Exception as e:
+        print(f"Error al verificar credenciales: {e}")
+        return False, f"Error al verificar credenciales: {e}"

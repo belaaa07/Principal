@@ -248,8 +248,15 @@ class MainAppFrame(ctk.CTkFrame):
 # --------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    ctk.set_appearance_mode("Dark") 
+    ctk.set_appearance_mode("Dark")
     ctk.set_default_color_theme("blue")
-    
-    app = App()
-    app.mainloop()
+
+    root = ctk.CTk()
+    root.title("Plot Master - Demo")
+    root.geometry("1000x700")
+    root.grid_columnconfigure(0, weight=1)
+    root.grid_rowconfigure(0, weight=1)
+
+    # Instanciar la aplicación principal dentro del root
+    main_app = MainAppFrame(root, user_name="Demo")
+    root.mainloop()
