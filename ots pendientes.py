@@ -33,20 +33,22 @@ class ModuloOTsPendientes(tk.Toplevel):
         style.theme_use('clam') # Estética moderna
         
         self.title("OTs Pendientes de Aprobación")
-        self.geometry("950x600")
+        self.geometry("1000x600") 
         
         self.ots = self._cargar_datos_simulados()
+        
+        # 🟢 CONTROL DE VENTANA: Almacena la instancia de la ventana de detalle si está abierta
+        self.ventana_detalle_abierta = None 
 
         self._crear_widgets()
-        self._actualizar_vista() # Cargamos solo las OTs Pendientes al iniciar
+        self._actualizar_vista()
         
     def _cargar_datos_simulados(self):
         """Carga algunas OTs de ejemplo para la demostración."""
-        # Se cargan 3 OTs, todas inician como Pendientes
         return [
-            OT(1001, "Carlos S.", "123456", "Luana M.", 1500000.0, 500000.0, "Contado", "No Solicita Envío"),
-            OT(1002, "Ana G.", "789012", "Javier R.", 950000.0, 0.0, "Crédito", "Envío a Ciudad X"),
-            OT(1003, "Carlos S.", "345678", "Sofía P.", 3200000.0, 1000000.0, "Contado", "Envío a Ciudad Y"),
+            OT(1001, "Carlos S.", "123456", "Luana M.", 1500000.0, 500000.0, "Contado", "No Solicita Envío", fecha="15/12/2025"),
+            OT(1002, "Ana G.", "789012", "Javier R.", 950000.0, 0.0, "Crédito", "Envío a Ciudad X", fecha="16/12/2025"),
+            OT(1003, "Carlos S.", "345678", "Sofía P.", 3200000.0, 1000000.0, "Contado", "Envío a Ciudad Y", fecha="16/12/2025"),
         ]
 
     def _formatear_moneda(self, valor):
@@ -78,34 +80,34 @@ class ModuloOTsPendientes(tk.Toplevel):
         
         # Treeview (Tabla)
         self.tree = ttk.Treeview(frame_tabla, 
-                                 columns=("nro", "vendedor", "monto", "abonado", "estado"), 
+                                 columns=("nro", "fecha", "vendedor", "monto", "abonado", "estado"), 
                                  show='headings')
         
         # Configuración de columnas
         self.tree.heading("nro", text="OT Nro", anchor=tk.W)
+        self.tree.heading("fecha", text="Fecha", anchor=tk.W) 
         self.tree.heading("vendedor", text="Vendedor", anchor=tk.W)
         self.tree.heading("monto", text="Monto (Gs)", anchor=tk.E)
         self.tree.heading("abonado", text="Abonado (Gs)", anchor=tk.E)
         self.tree.heading("estado", text="Estado", anchor=tk.CENTER)
         
-        self.tree.column("nro", width=100, anchor=tk.W, stretch=False)
+        self.tree.column("nro", width=80, anchor=tk.W, stretch=False)
+        self.tree.column("fecha", width=100, anchor=tk.W, stretch=False)
         self.tree.column("vendedor", width=150, anchor=tk.W, stretch=False)
         self.tree.column("monto", width=150, anchor=tk.E)
         self.tree.column("abonado", width=150, anchor=tk.E)
         self.tree.column("estado", width=120, anchor=tk.CENTER, stretch=False)
 
-        # Binds para click en la fila
-        self.tree.bind("<ButtonRelease-1>", self._mostrar_detalle_ot)
+        # Usamos <<TreeviewSelect>> (un solo clic es suficiente)
+        self.tree.bind("<<TreeviewSelect>>", self._mostrar_detalle_ot)
         
         self.tree.pack(fill='both', expand=True)
 
     def _get_ots_pendientes_filtradas(self, search_criteria=""):
         """Retorna OTs que son 'Pendiente' y coinciden con el criterio de búsqueda."""
         
-        # 1. Base filter: solo OTs 'Pendiente'
         pendientes = [ot for ot in self.ots if ot.estado == "Pendiente"]
         
-        # 2. Search filter
         if not search_criteria:
             return pendientes
         else:
@@ -127,9 +129,9 @@ class ModuloOTsPendientes(tk.Toplevel):
             abonado_fmt = self._formatear_moneda(ot.sena)
             
             self.tree.insert("", tk.END, iid=ot.ot_nro,
-                             # Solo OTs Pendientes tienen acciones de click
                              values=(
                                 ot.ot_nro, 
+                                ot.fecha,
                                 ot.vendedor, 
                                 monto_fmt, 
                                 abonado_fmt, 
@@ -148,28 +150,47 @@ class ModuloOTsPendientes(tk.Toplevel):
         self._actualizar_vista()
 
     def _mostrar_detalle_ot(self, event):
-        """Maneja el click en la tabla para mostrar el detalle."""
+        """
+        Maneja la selección en la tabla para mostrar el detalle.
+        🟢 IMPLEMENTA CONTROL DE INSTANCIA ÚNICA.
+        """
+        selected_items = self.tree.selection()
+        if not selected_items:
+            return 
         
-        item_id = self.tree.identify_row(event.y)
-        if not item_id:
-            return
-        
-        ot_nro = int(item_id)
+        ot_nro = int(selected_items[0])
         ot_seleccionada = next((ot for ot in self.ots if ot.ot_nro == ot_nro), None)
         
-        if ot_seleccionada:
-            # Abrimos la ventana de detalle y pasamos la OT y la función de recarga
-            DetalleOT(self, ot_seleccionada, self._recargar_tabla)
-            
-    def _aprobar_rechazar_ot(self, ot, nuevo_estado):
-        """
-        [LÓGICA ACTUALIZADA]
-        1. Si es Aprobada: Cambia estado y desaparece de la vista.
-        2. Si es Rechazada: Elimina la OT del sistema.
-        """
+        if not ot_seleccionada:
+            return
+
+        # 🟢 Lógica de control de instancia:
+        if self.ventana_detalle_abierta and self.ventana_detalle_abierta.winfo_exists():
+            # Si ya hay una ventana abierta, la enfocamos en lugar de crear una nueva
+            self.ventana_detalle_abierta.lift()
+            self.ventana_detalle_abierta.focus_set()
+            return
         
+        # Si no hay ventana abierta, creamos una nueva y guardamos la instancia
+        self.ventana_detalle_abierta = DetalleOT(self, ot_seleccionada, self._recargar_tabla)
+        # Configurar el protocolo de cierre para limpiar el atributo cuando se cierre
+        self.ventana_detalle_abierta.protocol("WM_DELETE_WINDOW", self._cerrar_detalle_ot)
+        
+    def _cerrar_detalle_ot(self):
+        """Limpia la referencia a la ventana de detalle cuando se cierra."""
+        if self.ventana_detalle_abierta:
+            self.ventana_detalle_abierta.destroy()
+            self.ventana_detalle_abierta = None # 🟢 Esto permite que se pueda abrir otra vez
+
+    def _aprobar_rechazar_ot(self, ot, nuevo_estado):
+        """Aplica la lógica de aprobación o rechazo."""
+        
+        # 🟢 Aseguramos que si se aprueba/rechaza, la ventana se cierre primero 
+        # para evitar inconsistencias con el objeto OT.
+        if self.ventana_detalle_abierta and self.ventana_detalle_abierta.ot == ot:
+            self._cerrar_detalle_ot()
+
         if nuevo_estado == "Rechazada":
-            # RECHAZO: Eliminar la OT del listado principal
             try:
                 self.ots.remove(ot)
                 messagebox.showinfo("Acción Exitosa", f"OT Nro {ot.ot_nro} ha sido rechazada y eliminada del sistema.")
@@ -178,11 +199,9 @@ class ModuloOTsPendientes(tk.Toplevel):
                 return
         
         elif nuevo_estado == "Aprobada":
-            # APROBACIÓN: Cambiar estado. Desaparecerá al recargar la vista.
             ot.estado = nuevo_estado
             messagebox.showinfo("Acción Exitosa", f"OT Nro {ot.ot_nro} ha sido aprobada. Se mueve a la planilla de OTs Aprobadas.")
         
-        # Después de cualquier acción, actualizamos la vista, que ahora solo muestra 'Pendientes'
         self._actualizar_vista()
 
     def _recargar_tabla(self):
@@ -190,8 +209,6 @@ class ModuloOTsPendientes(tk.Toplevel):
         self._actualizar_vista()
 
 # --- 3. VISTA DE DETALLE/EDICIÓN ---
-# (La clase DetalleOT se mantiene igual, ya que solo llama al método _aprobar_rechazar_ot)
-
 class DetalleOT(tk.Toplevel):
     def __init__(self, master, ot, callback_recarga):
         super().__init__(master)
@@ -200,7 +217,7 @@ class DetalleOT(tk.Toplevel):
         self.callback_recarga = callback_recarga
         self.resizable(False, False)
         
-        self._es_editable = False # Control del modo edición
+        self._es_editable = False 
 
         self._crear_widgets_detalle()
         self._llenar_campos()
@@ -287,7 +304,6 @@ class DetalleOT(tk.Toplevel):
             sena = self.ot.sena
         else:
             try:
-                # Lee los valores de las entradas, tratando vacío como 0
                 total = float(self.entry_valor_total.get() or 0)
                 sena = float(self.entry_sena.get() or 0)
             except ValueError:
@@ -307,15 +323,14 @@ class DetalleOT(tk.Toplevel):
             self.entry_sena.config(state='normal')
             self.btn_editar.config(text="↩️ Cancelar Edición")
             self.btn_guardar.config(state='normal')
-            # Se asegura que la visualización del saldo se actualice con los valores de las Entry
             self.entry_valor_total.focus_set() 
         else:
             self.entry_valor_total.config(state='readonly')
             self.entry_sena.config(state='readonly')
             self.btn_editar.config(text="✏️ Editar Valores")
             self.btn_guardar.config(state='disabled')
-            self._llenar_campos() # Revierte a los valores originales
-            self._recalcular_saldo() # Recalcula el saldo después de revertir
+            self._llenar_campos() 
+            self._recalcular_saldo() 
 
     def _guardar_cambios(self):
         """Guarda los valores editados y actualiza la OT."""
@@ -336,8 +351,9 @@ class DetalleOT(tk.Toplevel):
 
     def _aprobar_rechazar(self, nuevo_estado):
         """Aplica la lógica de aprobación o rechazo y cierra la ventana."""
+        # En lugar de solo self.destroy(), llamamos al método del master que también limpia la referencia
         self.master._aprobar_rechazar_ot(self.ot, nuevo_estado)
-        self.destroy()
+
 
 # --- 4. INICIO DE LA APLICACIÓN ---
 
