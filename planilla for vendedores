@@ -1,0 +1,232 @@
+import customtkinter as ctk
+from tkinter import ttk, messagebox
+from datetime import datetime
+
+# --- CONFIGURACIÓN DE ESTILO ---
+ctk.set_appearance_mode("light") 
+ctk.set_default_color_theme("blue")
+
+class VentanaAbono(ctk.CTkToplevel):
+    """Ventana pop-up para cargar abonos"""
+    def __init__(self, parent, callback):
+        super().__init__(parent)
+        self.title("Registrar Abono")
+        self.geometry("300x220")
+        self.callback = callback
+        self.attributes("-topmost", True)
+        self.grab_set()
+
+        ctk.CTkLabel(self, text="Monto del Abono (Gs.):", font=("Arial", 13, "bold")).pack(pady=15)
+        self.entry_monto = ctk.CTkEntry(self, placeholder_text="Ej: 100000", width=180)
+        self.entry_monto.pack(pady=5)
+        
+        self.btn_confirmar = ctk.CTkButton(self, text="Confirmar Pago", fg_color="#27AE60", hover_color="#219150", command=self.enviar_datos)
+        self.btn_confirmar.pack(pady=25)
+
+    def enviar_datos(self):
+        monto = self.entry_monto.get()
+        if monto.isdigit():
+            self.callback(int(monto))
+            self.destroy()
+        else:
+            messagebox.showerror("Error", "Ingrese un monto válido.")
+
+class ModuloOTs(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+
+        self.title("Plot Master App - Gestión de OTs")
+        self.geometry("1550x850")
+
+        # DATOS DE PRUEBA
+        self.datos_ots = [
+            {"ot": "1000", "fecha": "17/12/2025", "vendedor": "Marcos", "cliente": "Juan Pérez", "descripcion": "100 Tarjetas personales mate con barniz localizado", "monto": 250000, "pagos": [{"m": 100000, "f": "17/12"}], "pago": "Crédito", "estado": "Aprobado"},
+            {"ot": "1001", "fecha": "17/12/2025", "vendedor": "Ana", "cliente": "Súper Sol", "descripcion": "Cartel lona frontal 3x2 mts con estructura y colocación", "monto": 1200000, "pagos": [{"m": 1200000, "f": "17/12"}], "pago": "Contado", "estado": "Finalizado"},
+            {"ot": "1002", "fecha": "17/12/2025", "vendedor": "Marcos", "cliente": "Farmacia Vida", "descripcion": "Vinilos microperforados para fachada principal 4 vidrios", "monto": 800000, "pagos": [{"m": 400000, "f": "17/12"}], "pago": "Crédito", "estado": "Entregado"},
+        ]
+
+        self.ot_seleccionada = None
+        
+        # Grid Principal
+        self.grid_columnconfigure(0, weight=1) 
+        self.grid_columnconfigure(1, weight=0) 
+        self.grid_rowconfigure(0, weight=1)
+
+        self.crear_planilla_izquierda()
+        self.crear_detalle_derecha()
+
+    def crear_planilla_izquierda(self):
+        self.frame_izq = ctk.CTkFrame(self, fg_color="white", corner_radius=10, border_width=1, border_color="#D0D0D0")
+        self.frame_izq.grid(row=0, column=0, padx=15, pady=15, sticky="nsew")
+
+        # --- HEADER CON FILTRO Y BUSQUEDA ---
+        header = ctk.CTkFrame(self.frame_izq, fg_color="transparent")
+        header.pack(fill="x", padx=20, pady=15)
+        
+        ctk.CTkLabel(header, text="PLANILLA DE OTs", font=("Arial", 22, "bold")).pack(side="left")
+        
+        # Filtro de Estado
+        self.filtro_var = ctk.StringVar(value="Todos")
+        self.combo_filtro = ctk.CTkComboBox(header, values=["Todos", "Aprobado", "Entregado", "Finalizado"], 
+                                            variable=self.filtro_var, command=self.actualizar_tabla, width=140)
+        self.combo_filtro.pack(side="left", padx=20)
+
+        # Buscador
+        self.entry_busqueda = ctk.CTkEntry(header, placeholder_text="🔍 Buscar cliente, OT o descripción...", width=300)
+        self.entry_busqueda.pack(side="right")
+        self.entry_busqueda.bind("<KeyRelease>", self.actualizar_tabla)
+
+        # --- TABLA CON 2 BARRAS DE DESPLAZAMIENTO (VERTICAL Y HORIZONTAL) ---
+        cont_tabla_v = ctk.CTkFrame(self.frame_izq, fg_color="transparent")
+        cont_tabla_v.pack(expand=True, fill="both", padx=15, pady=(0, 5))
+
+        columnas = ("ot", "fecha", "cliente", "descripcion", "monto", "abonado", "pago", "estado")
+        self.tabla = ttk.Treeview(cont_tabla_v, columns=columnas, show="headings")
+
+        # 1. Barra Vertical (Planilla)
+        self.scroll_v_tabla = ctk.CTkScrollbar(cont_tabla_v, orientation="vertical", command=self.tabla.yview)
+        self.tabla.configure(yscrollcommand=self.scroll_v_tabla.set)
+
+        # 2. Barra Horizontal (Planilla)
+        self.scroll_h_tabla = ctk.CTkScrollbar(self.frame_izq, orientation="horizontal", command=self.tabla.xview)
+        self.tabla.configure(xscrollcommand=self.scroll_h_tabla.set)
+
+        # Tags de Colores
+        self.tabla.tag_configure("aprobado", background="#FFEBEE") # Rojo claro
+        self.tabla.tag_configure("entregado", background="#FFF9C4") # Amarillo
+        self.tabla.tag_configure("finalizado", background="#C8E6C9") # Verde
+
+        anchos = {"ot": 60, "fecha": 90, "cliente": 180, "descripcion": 450, "monto": 110, "abonado": 110, "pago": 100, "estado": 100}
+        for col in columnas:
+            self.tabla.heading(col, text=col.upper())
+            self.tabla.column(col, width=anchos[col], anchor="center", stretch=False)
+
+        self.tabla.pack(side="left", expand=True, fill="both")
+        self.scroll_v_tabla.pack(side="right", fill="y")
+        self.scroll_h_tabla.pack(side="bottom", fill="x", padx=15, pady=(0, 15))
+
+        self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_fila)
+        self.actualizar_tabla()
+
+    def crear_detalle_derecha(self):
+        # --- 3. PANEL DERECHO CON SU PROPIO SCROLL (VERTICAL) ---
+        self.frame_det = ctk.CTkScrollableFrame(self, width=320, label_text="DETALLE DE LA ORDEN", 
+                                                border_width=1, border_color="#D0D0D0", fg_color="#FDFDFD")
+        self.frame_det.grid(row=0, column=1, padx=(0, 15), pady=15, sticky="nsew")
+
+        self.info_container = ctk.CTkFrame(self.frame_det, fg_color="transparent")
+        self.info_container.pack(fill="x", padx=10, pady=10)
+
+        self.lbl_ot_nro = self.crear_dato("OT Nro:")
+        self.lbl_vendedor = self.crear_dato("Vendedor:")
+        self.lbl_cliente = self.crear_dato("Cliente:")
+        
+        f_desc = ctk.CTkFrame(self.info_container, fg_color="transparent")
+        f_desc.pack(fill="x", pady=5)
+        ctk.CTkLabel(f_desc, text="Descripción:", font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
+        self.lbl_desc = ctk.CTkLabel(f_desc, text="---", font=("Arial", 11), wraplength=180, justify="left")
+        self.lbl_desc.pack(side="left")
+
+        self.lbl_pago = self.crear_dato("Forma Pago:")
+
+        self.crear_separador()
+
+        header_ab = ctk.CTkFrame(self.frame_det, fg_color="transparent")
+        header_ab.pack(fill="x", padx=10)
+        ctk.CTkLabel(header_ab, text="PAGOS REALIZADOS", font=("Arial", 12, "bold")).pack(side="left")
+        self.btn_mas_pago = ctk.CTkButton(header_ab, text="+", width=35, height=28, command=self.abrir_ventana_pago)
+        self.btn_mas_pago.pack(side="right")
+
+        self.container_historial = ctk.CTkFrame(self.frame_det, fg_color="#F0F0F0", corner_radius=5)
+        self.container_historial.pack(fill="x", padx=10, pady=10)
+
+        self.lbl_total = self.crear_total("PRECIO TOTAL:")
+        self.lbl_abonado = self.crear_total("ABONADO:")
+        self.lbl_saldo = self.crear_total("SALDO:", color="#E74C3C")
+
+        self.crear_separador()
+
+        self.btn_entregar = ctk.CTkButton(self.frame_det, text="MARCAR ENTREGADO", height=45, fg_color="gray", state="disabled", command=lambda: self.cambiar_estado("Entregado"))
+        self.btn_entregar.pack(pady=5, fill="x", padx=10)
+
+        self.btn_finalizar = ctk.CTkButton(self.frame_det, text="FINALIZAR PEDIDO", height=45, fg_color="gray", state="disabled", command=lambda: self.cambiar_estado("Finalizado"))
+        self.btn_finalizar.pack(pady=5, fill="x", padx=10)
+
+    def crear_dato(self, titulo):
+        f = ctk.CTkFrame(self.info_container, fg_color="transparent")
+        f.pack(fill="x", pady=2)
+        ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
+        l = ctk.CTkLabel(f, text="---", font=("Arial", 11))
+        l.pack(side="left")
+        return l
+
+    def crear_total(self, titulo, color=None):
+        f = ctk.CTkFrame(self.frame_det, fg_color="transparent")
+        f.pack(fill="x", padx=15, pady=2)
+        ctk.CTkLabel(f, text=titulo, font=("Arial", 12, "bold")).pack(side="left")
+        l = ctk.CTkLabel(f, text="0 Gs.", text_color=color, font=("Arial", 14, "bold"))
+        l.pack(side="right")
+        return l
+
+    def crear_separador(self):
+        linea = ctk.CTkFrame(self.frame_det, height=2, fg_color="#EEEEEE")
+        linea.pack(fill="x", padx=10, pady=15)
+
+    def actualizar_tabla(self, e=None):
+        for i in self.tabla.get_children(): self.tabla.delete(i)
+        busq = self.entry_busqueda.get().lower()
+        filtro = self.filtro_var.get()
+
+        for d in self.datos_ots:
+            if (filtro == "Todos" or d["estado"] == filtro) and \
+               (busq in d["cliente"].lower() or busq in d["ot"] or busq in d["descripcion"].lower()):
+                abono = sum(p['m'] for p in d['pagos'])
+                tag = d["estado"].lower()
+                self.tabla.insert("", "end", values=(d["ot"], d["fecha"], d["cliente"], d["descripcion"], f"{d['monto']:,} Gs.", f"{abono:,} Gs.", d["pago"], d["estado"]), tags=(tag,))
+
+    def al_seleccionar_fila(self, e):
+        sel = self.tabla.selection()
+        if not sel: return
+        id_ot = str(self.tabla.item(sel[0])['values'][0])
+        self.ot_seleccionada = next(x for x in self.datos_ots if x["ot"] == id_ot)
+        self.refrescar_detalle()
+
+    def refrescar_detalle(self):
+        d = self.ot_seleccionada
+        self.lbl_ot_nro.configure(text=d['ot'])
+        self.lbl_vendedor.configure(text=d['vendedor'])
+        self.lbl_cliente.configure(text=d['cliente'])
+        self.lbl_desc.configure(text=d['descripcion'])
+        self.lbl_pago.configure(text=d['pago'])
+        
+        for w in self.container_historial.winfo_children(): w.destroy()
+        abono = sum(p['m'] for p in d['pagos'])
+        for p in d['pagos']:
+            f = ctk.CTkFrame(self.container_historial, fg_color="white")
+            f.pack(fill="x", pady=2, padx=5)
+            ctk.CTkLabel(f, text=f"📅 {p['f']}", font=("Arial", 10)).pack(side="left", padx=10)
+            ctk.CTkLabel(f, text=f"{p['m']:,} Gs.", font=("Arial", 10, "bold")).pack(side="right", padx=10)
+
+        self.lbl_total.configure(text=f"{d['monto']:,} Gs.")
+        self.lbl_abonado.configure(text=f"{abono:,} Gs.")
+        self.lbl_saldo.configure(text=f"{d['monto'] - abono:,} Gs.")
+
+        self.btn_entregar.configure(state="normal" if d['estado'] == "Aprobado" else "disabled", 
+                                    fg_color="#F39C12" if d['estado'] == "Aprobado" else "gray")
+        self.btn_finalizar.configure(state="normal" if d['estado'] == "Entregado" else "disabled", 
+                                     fg_color="#27AE60" if d['estado'] == "Entregado" else "gray")
+
+    def abrir_ventana_pago(self):
+        if self.ot_seleccionada: VentanaAbono(self, self.registrar_abono_final)
+
+    def registrar_abono_final(self, m):
+        self.ot_seleccionada['pagos'].append({"m": m, "f": datetime.now().strftime("%d/%m/%y")})
+        self.refrescar_detalle(); self.actualizar_tabla()
+
+    def cambiar_estado(self, nuevo_estado):
+        if self.ot_seleccionada:
+            self.ot_seleccionada['estado'] = nuevo_estado
+            self.actualizar_tabla(); self.refrescar_detalle()
+
+if __name__ == "__main__":
+    app = ModuloOTs(); app.mainloop()
