@@ -5,7 +5,7 @@ from ui.modules.work_orders.ot_registration_view import crear_modulo_ot
 
 
 def main():
-    ctk.set_appearance_mode("System")
+    ctk.set_appearance_mode("Light")
     ctk.set_default_color_theme("blue")
 
     root = ctk.CTk()

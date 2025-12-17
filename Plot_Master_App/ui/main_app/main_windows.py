@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from ui.modules.work_orders.ot_registration_view import crear_modulo_ot
+from ui.modules.work_orders.ot_registration_view import crear_modulo_ot_embedded, crear_modulo_ot
 
 # ==========================================================================
 # CLASE 1: Módulo de Órdenes de Trabajo (Contiene las Subpestañas)
@@ -71,28 +71,35 @@ class OrdenesFrame(ctk.CTkFrame):
 
     def _create_view_frame(self, text):
         # Función auxiliar para crear los frames de contenido de la vista
-        frame = ctk.CTkFrame(self.internal_content_frame, fg_color="transparent")
-        label = ctk.CTkLabel(frame, 
-                             text=text, 
-                             font=ctk.CTkFont(size=24, weight="bold"), 
-                             text_color="#343638")
-        label.pack(padx=20, pady=(20, 10))
+            frame = ctk.CTkFrame(self.internal_content_frame, fg_color="transparent")
+            frame.grid_rowconfigure(0, weight=0)
+            frame.grid_rowconfigure(1, weight=1)
+            frame.grid_columnconfigure(0, weight=1)
 
-        # Si es la vista de 'generar', añadimos botón que abre el módulo OT cuando el usuario lo solicita
-        if "GENERAR" in text.upper():
-            generar_btn = ctk.CTkButton(frame, text="Generar OT", fg_color="#5E835E", hover_color="#4B6B4B",
-                                        width=180, height=40, command=self._on_generar_pressed)
-            generar_btn.pack(pady=(10, 20))
-        return frame
+            label = ctk.CTkLabel(frame,
+                                 text=text,
+                                 font=ctk.CTkFont(size=24, weight="bold"),
+                                 text_color="#343638")
+            label.grid(row=0, column=0, sticky="w", padx=20, pady=(20, 10))
+
+            # Si es la vista de 'generar', añadimos botón que abre el módulo OT cuando el usuario lo solicita
+            if "GENERAR" in text.upper():
+                generar_btn = ctk.CTkButton(frame, text="Generar OT", fg_color="#5E835E", hover_color="#4B6B4B",
+                                            width=180, height=40, command=self._on_generar_pressed)
+                generar_btn.grid(row=1, column=0, sticky="w", padx=20, pady=(10, 20))
+            return frame
 
     def _on_generar_pressed(self):
+        # Limpiar contenido previo del frame de 'generar' y ejecutar callback embebido
+        for child in self.generar_frame.winfo_children():
+            child.destroy()
+
         if callable(self.open_generar_callback):
-            try:
-                self.open_generar_callback()
-            except Exception:
-                crear_modulo_ot(parent=self.winfo_toplevel())
+            # Pasamos el frame donde debe montarse el formulario
+            self.open_generar_callback(parent=self.generar_frame)
         else:
-            crear_modulo_ot(parent=self.winfo_toplevel())
+            # No hacemos nada si no hay callback embebido
+            return
 
     def select_view_by_name(self, name):
         # Lógica de cambio de Subpestaña
@@ -142,59 +149,76 @@ class MainAppFrame(ctk.CTkFrame):
         # 2. Creación del Marco de Navegación (Sidebar)
         # ------------------------------------------------------------------
         
-        self.navigation_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#343638") 
+        self.navigation_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#263238")
         self.navigation_frame.grid(row=0, column=0, sticky="ns")
-        self.navigation_frame.grid_rowconfigure(8, weight=1)
+        self.navigation_frame.grid_rowconfigure(12, weight=1)
 
         # ------------------------------------------------------------------
         # 3. Elementos Fijos del Sidebar
         # ------------------------------------------------------------------
         
-        self.title_label = ctk.CTkLabel(self.navigation_frame, 
-                                        text="Plot Master", 
-                                        font=ctk.CTkFont(size=18, weight="bold"))
-        self.title_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
-        
+        self.title_label = ctk.CTkLabel(self.navigation_frame,
+                        text="Plot Master",
+                        font=ctk.CTkFont(size=18, weight="bold"),
+                        text_color="white")
+        self.title_label.grid(row=0, column=0, padx=20, pady=(16, 8), sticky="w")
+
         self.user_frame = ctk.CTkFrame(self.navigation_frame, fg_color="transparent")
-        self.user_frame.grid(row=1, column=0, padx=10, pady=(10, 20), sticky="ew")
-        self.user_label = ctk.CTkLabel(self.user_frame, 
-                           text=f"👤  {self.user_name}", 
-                           anchor="w",
-                           font=ctk.CTkFont(size=14, weight="normal"))
+        self.user_frame.grid(row=1, column=0, padx=10, pady=(6, 12), sticky="ew")
+        self.user_label = ctk.CTkLabel(self.user_frame,
+                   text=f"👤  {self.user_name}",
+                   anchor="w",
+                   font=ctk.CTkFont(size=13, weight="normal"),
+                   text_color="white")
         self.user_label.pack(fill="x")
-        
-        self.menu_separator = ctk.CTkLabel(self.navigation_frame, 
-                                           text="MENÚ", 
-                                           font=ctk.CTkFont(size=12, weight="bold"),
-                                           text_color="gray50")
-        self.menu_separator.grid(row=2, column=0, padx=20, pady=(20, 5), sticky="w")
+
+        # MENÚ
+        self.menu_separator = ctk.CTkLabel(self.navigation_frame,
+                           text="MENÚ",
+                           font=ctk.CTkFont(size=12, weight="bold"),
+                           text_color="#B0BEC5")
+        self.menu_separator.grid(row=2, column=0, padx=16, pady=(12, 6), sticky="w")
 
         # ------------------------------------------------------------------
         # 4. Botones de Navegación (Pestañas)
         # ------------------------------------------------------------------
 
         def create_nav_button(row, text, command_name):
-            return ctk.CTkButton(self.navigation_frame, 
-                                 corner_radius=0, height=40, border_spacing=10, 
-                                 text=text, fg_color="transparent", 
-                                 text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
+            return ctk.CTkButton(self.navigation_frame,
+                                 corner_radius=0, height=40, border_spacing=10,
+                                 text=text, fg_color="transparent",
+                                 text_color=("#ECEFF1", "#ECEFF1"), hover_color=("#344A4E", "#344A4E"),
                                  anchor="w",
                                  command=lambda: self.select_frame_by_name(command_name))
-                                 
+
         self.inicio_button = create_nav_button(3, "🏠  Inicio", "inicio")
-        self.inicio_button.grid(row=3, column=0, sticky="ew")
+        self.inicio_button.grid(row=3, column=0, sticky="ew", padx=6)
 
         self.ordenes_button = create_nav_button(4, "📋  Órdenes de trabajo", "ordenes")
-        self.ordenes_button.grid(row=4, column=0, sticky="ew")
+        self.ordenes_button.grid(row=4, column=0, sticky="ew", padx=6)
 
-        self.clientes_button = create_nav_button(5, "👤  Clientes", "clientes")
-        self.clientes_button.grid(row=5, column=0, sticky="ew")
+        # CATÁLOGO
+        self.catalogo_separator = ctk.CTkLabel(self.navigation_frame,
+                                               text="CATÁLOGO",
+                                               font=ctk.CTkFont(size=12, weight="bold"),
+                                               text_color="#B0BEC5")
+        self.catalogo_separator.grid(row=5, column=0, padx=16, pady=(12, 6), sticky="w")
 
-        self.reportes_button = create_nav_button(6, "📊  Reportes", "reportes")
-        self.reportes_button.grid(row=6, column=0, sticky="ew")
+        self.clientes_button = create_nav_button(6, "👥  Clientes", "clientes")
+        self.clientes_button.grid(row=6, column=0, sticky="ew", padx=6)
 
-        self.acceso_button = create_nav_button(7, "⚙️  Administrar Accesos", "acceso")
-        self.acceso_button.grid(row=7, column=0, sticky="ew")
+        self.reportes_button = create_nav_button(7, "📊  Reportes", "reportes")
+        self.reportes_button.grid(row=7, column=0, sticky="ew", padx=6)
+
+        # CONFIGURACIÓN
+        self.config_separator = ctk.CTkLabel(self.navigation_frame,
+                                             text="CONFIGURACIÓN",
+                                             font=ctk.CTkFont(size=12, weight="bold"),
+                                             text_color="#B0BEC5")
+        self.config_separator.grid(row=8, column=0, padx=16, pady=(12, 6), sticky="w")
+
+        self.acceso_button = create_nav_button(9, "⚙️  Administrar accesos", "acceso")
+        self.acceso_button.grid(row=9, column=0, sticky="ew", padx=6)
         
         # ------------------------------------------------------------------
         # 5. Marcos de Contenido (Módulos) - ¡Conexión!
@@ -205,25 +229,21 @@ class MainAppFrame(ctk.CTkFrame):
         self.main_content_frame.grid_rowconfigure(0, weight=1)
         self.main_content_frame.grid_columnconfigure(0, weight=1)
         
-        # Instanciamos los marcos, utilizando la clase OrdenesFrame que tiene las subpestañas
-        self.inicio_frame = self._create_module_frame("Módulo de Inicio")
-        self.clientes_frame = self._create_module_frame("Módulo: Clientes")
-        self.reportes_frame = self._create_module_frame("Módulo: Reportes")
-        self.acceso_frame = self._create_module_frame("Módulo: Administrar Accesos")
-        
-        # INSTANCIAMOS EL MÓDULO CON SUBPESTAÑAS
-        # Pasamos un callback que abrirá el módulo de OT con el contexto de usuario (vendedor)
-        self.ordenes_frame = OrdenesFrame(self.main_content_frame, open_generar_callback=lambda: crear_modulo_ot(parent=self.parent, vendedor=self.user_name))
+        # Contenedor central persistente donde se montan todos los módulos
+        self.central_container = ctk.CTkFrame(self.main_content_frame, fg_color="#F1F5F9")
+        self.central_container.grid(row=0, column=0, sticky="nsew")
+        self.central_container.grid_rowconfigure(0, weight=1)
+        self.central_container.grid_columnconfigure(0, weight=1)
 
         # ------------------------------------------------------------------
         # 6. Inicialización y Lógica de Pestañas
         # ------------------------------------------------------------------
-        
-        self.select_frame_by_name("ordenes") # Inicia en "Órdenes de trabajo"
+        # Inicia mostrando el módulo de Inicio
+        self.select_frame_by_name("inicio")
 
     def _create_module_frame(self, text):
         # Función para crear módulos genéricos
-        frame = ctk.CTkFrame(self.main_content_frame, fg_color="transparent")
+        frame = ctk.CTkFrame(self.central_container, fg_color="transparent")
         label = ctk.CTkLabel(frame, 
                              text=text, 
                              font=ctk.CTkFont(size=30, weight="bold"), 
@@ -231,38 +251,57 @@ class MainAppFrame(ctk.CTkFrame):
         label.pack(padx=50, pady=50)
         return frame
 
+    def _clear_central(self):
+        for child in self.central_container.winfo_children():
+            child.destroy()
+
+    def _show_inicio(self):
+        self._clear_central()
+        frame = self._create_module_frame("Módulo de Inicio")
+        frame.grid(row=0, column=0, sticky="nsew")
+
+    def _show_clientes(self):
+        self._clear_central()
+        frame = self._create_module_frame("Módulo: Clientes")
+        frame.grid(row=0, column=0, sticky="nsew")
+
+    def _show_reportes(self):
+        self._clear_central()
+        frame = self._create_module_frame("Módulo: Reportes")
+        frame.grid(row=0, column=0, sticky="nsew")
+
+    def _show_acceso(self):
+        self._clear_central()
+        frame = self._create_module_frame("Módulo: Administrar Accesos")
+        frame.grid(row=0, column=0, sticky="nsew")
+
+    def _show_ordenes(self):
+        self._clear_central()
+        crear_modulo_ot_embedded(parent=self.central_container, vendedor=self.user_name)
+
     def select_frame_by_name(self, name):
         # Lógica de navegación principal (sidebar)
-        
         buttons = [self.inicio_button, self.ordenes_button, self.clientes_button, self.reportes_button, self.acceso_button]
         for button in buttons:
             button.configure(fg_color="transparent")
 
-        frames = [self.inicio_frame, self.ordenes_frame, self.clientes_frame, self.reportes_frame, self.acceso_frame]
-        for frame in frames:
-            frame.grid_forget()
+        active_color = ("#69B5F9", "#0086E2")
 
-        active_color = ("#69B5F9", "#0086E2") 
-        
         if name == "inicio":
             self.inicio_button.configure(fg_color=active_color)
-            self.inicio_frame.grid(row=0, column=0, sticky="nsew")
-        
+            self._show_inicio()
         elif name == "ordenes":
             self.ordenes_button.configure(fg_color=active_color)
-            self.ordenes_frame.grid(row=0, column=0, sticky="nsew")
-            
+            self._show_ordenes()
         elif name == "clientes":
             self.clientes_button.configure(fg_color=active_color)
-            self.clientes_frame.grid(row=0, column=0, sticky="nsew")
-        
+            self._show_clientes()
         elif name == "reportes":
             self.reportes_button.configure(fg_color=active_color)
-            self.reportes_frame.grid(row=0, column=0, sticky="nsew")
-
+            self._show_reportes()
         elif name == "acceso":
             self.acceso_button.configure(fg_color=active_color)
-            self.acceso_frame.grid(row=0, column=0, sticky="nsew")
+            self._show_acceso()
 
 
 # --------------------------------------------------------------------------
