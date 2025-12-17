@@ -169,7 +169,7 @@ def validar_y_buscar(event=None):
         # Usamos after() para asegurar que el widget ya esté listo para recibir el foco.
         root_principal.after(100, lambda: registrar_button.focus_set())
         
-def guardar_ot():
+def guardar_ot(vendedor=None):
     """Función para recolectar, validar y guardar los datos de la OT."""
     try:
         valor_str = valor_var.get().replace('.', '').replace(',', '')
@@ -208,6 +208,9 @@ def guardar_ot():
             "forma_pago": forma_pago,
             "envio_status": bool(envio_status)
         }
+        # Añadir vendedor de sesión si está disponible (no editable en el formulario)
+        if vendedor:
+            datos_a_guardar["vendedor"] = vendedor
 
         # --- Lógica de guardado de OT en Supabase ---
         success, message = insert_work_order(datos_a_guardar)
@@ -234,7 +237,7 @@ Envío: {'Solicita Envío' if envio_status else 'No Solicita Envío'}
             
             # Reiniciar el formulario principal
             root_principal.destroy()
-            crear_modulo_ot() 
+            crear_modulo_ot()
         else:
             messagebox.showerror("Error al Guardar OT", message)
 
@@ -246,11 +249,12 @@ Envío: {'Solicita Envío' if envio_status else 'No Solicita Envío'}
 
 
 # --- CONFIGURACIÓN DE LA VENTANA PRINCIPAL (Estilo Moderno) ---
-def crear_modulo_ot(parent=None):
+def crear_modulo_ot(parent=None, vendedor=None):
     """Crea la ventana del módulo de OT como Toplevel y la muestra.
 
     parent: widget padre (Tk o Toplevel)
     """
+    global root_principal
     root_principal = tk.Toplevel(master=parent) if parent is not None else tk.Toplevel()
     root_principal.title("🏷️ Módulo de Orden de Trabajo")
     root_principal.resizable(False, False)
@@ -286,6 +290,7 @@ def crear_modulo_ot(parent=None):
     nombre_var = tk.StringVar()
     valor_var = tk.StringVar()
     sena_var = tk.StringVar()
+    vendedor_display = vendedor if vendedor else "No asignado"
     pago_var = tk.IntVar(value=2) 
     envio_var = tk.IntVar(value=0) 
 
@@ -307,54 +312,68 @@ def crear_modulo_ot(parent=None):
     ttk.Label(form_frame, textvariable=fecha_var).grid(row=1, column=3, sticky="w", pady=5)
 
 
-    # --- FILA 2: CI | Ruc (Entrada y Búsqueda) ---
-    ttk.Label(form_frame, text="CI | Ruc:").grid(row=2, column=0, sticky="w", pady=8)
+    # --- FILA 2: Vendedor --- 
+    ttk.Label(form_frame, text="Vendedor:", font=('Arial', 10, 'bold')).grid(row=2, column=0, sticky="w", pady=5)
+    ttk.Label(form_frame, text=vendedor_display, font=('Arial', 10, 'bold'), foreground="#006699").grid(row=2, column=1, sticky="w", pady=5)
+    
+
+    # --- FILA 3: CI | Ruc (Entrada y Búsqueda) ---
+    ttk.Label(form_frame, text="CI | Ruc:").grid(row=3, column=0, sticky="w", pady=8)
     ci_ruc_entry = ttk.Entry(form_frame, textvariable=ci_ruc_var, width=15)
-    ci_ruc_entry.grid(row=2, column=1, sticky="w", padx=(0, 5))
+    ci_ruc_entry.grid(row=3, column=1, sticky="w", padx=(0, 5))
     ci_ruc_entry.bind("<Return>", validar_y_buscar) 
     ci_ruc_entry.bind("<FocusOut>", validar_y_buscar) 
 
     # Etiqueta de estado de registro 
     registro_label = tk.Label(form_frame, text="", font=('Arial', 9), bg=BG_COLOR)
-    registro_label.grid(row=2, column=2, sticky="w")
+    registro_label.grid(row=3, column=2, sticky="w")
 
 
-    # --- FILA 3: Botón Registrar y Nombre del Cliente ---
-    registrar_button = ttk.Button(form_frame, 
-              text="Registrar Cliente",
+    # --- FILA 4: Botón Registrar y Nombre del Cliente ---
+    ttk.Button(form_frame, 
+              text="Registrar", 
               style='Accent.TButton', 
-              command=abrir_modulo_registro_cliente)
-    registrar_button.grid(row=2, column=3, sticky="e", pady=8) 
+              command=abrir_modulo_registro_cliente).grid(row=3, column=3, sticky="e", pady=8) 
 
-    # Nombre del Cliente (Se mantiene abajo, en la fila 3)
-    ttk.Label(form_frame, text="Nombre:").grid(row=3, column=0, sticky="w", pady=8)
-    ttk.Label(form_frame, textvariable=nombre_var, foreground="#006699", font=('Arial', 10, 'italic')).grid(row=3, column=1, columnspan=3, sticky="w", pady=8)
+    # Nombre del Cliente 
+    ttk.Label(form_frame, text="Nombre:").grid(row=4, column=0, sticky="w", pady=8)
+    ttk.Label(form_frame, textvariable=nombre_var, foreground="#006699", font=('Arial', 10, 'italic')).grid(row=4, column=1, columnspan=3, sticky="w", pady=8)
 
 
-    # --- FILA 4 y 5: Valores ---
-    ttk.Label(form_frame, text="VALORES:", font=('Arial', 10, 'bold')).grid(row=4, column=0, columnspan=4, sticky="w", pady=(10, 5))
+    # --- FILA 5 y 6: Valores ---
+    ttk.Label(form_frame, text="VALORES:", font=('Arial', 10, 'bold')).grid(row=5, column=0, columnspan=4, sticky="w", pady=(10, 5))
 
-    ttk.Label(form_frame, text="Valor Total (Gs.):").grid(row=5, column=0, sticky="w", pady=5)
-    ttk.Entry(form_frame, textvariable=valor_var, width=15).grid(row=5, column=1, sticky="w")
+    ttk.Label(form_frame, text="Valor Total (Gs.):").grid(row=6, column=0, sticky="w", pady=5)
+    ttk.Entry(form_frame, textvariable=valor_var, width=15).grid(row=6, column=1, sticky="w")
     
-    ttk.Label(form_frame, text="Seña (Gs.):").grid(row=5, column=2, sticky="w", padx=(10, 0), pady=5)
-    ttk.Entry(form_frame, textvariable=sena_var, width=15).grid(row=5, column=3, sticky="w")
+    ttk.Label(form_frame, text="Seña (Gs.):").grid(row=6, column=2, sticky="w", padx=(10, 0), pady=5)
+    ttk.Entry(form_frame, textvariable=sena_var, width=15).grid(row=6, column=3, sticky="w")
 
 
-    # --- FILA 6 y 7: Opciones ---
-    ttk.Label(form_frame, text="OPCIONES:", font=('Arial', 10, 'bold')).grid(row=6, column=0, columnspan=4, sticky="w", pady=(10, 5))
+    # --- FILA 7 y 8: Opciones ---
+    ttk.Label(form_frame, text="OPCIONES:", font=('Arial', 10, 'bold')).grid(row=7, column=0, columnspan=4, sticky="w", pady=(10, 5))
 
-    ttk.Label(form_frame, text="Forma de Pago:").grid(row=7, column=0, sticky="w", pady=5)
-    ttk.Radiobutton(form_frame, text="Crédito", variable=pago_var, value=1).grid(row=7, column=1, sticky="w", padx=5)
-    ttk.Radiobutton(form_frame, text="Contado", variable=pago_var, value=2).grid(row=7, column=2, sticky="w", padx=5)
+    ttk.Label(form_frame, text="Forma de Pago:").grid(row=8, column=0, sticky="w", pady=5)
+    ttk.Radiobutton(form_frame, text="Crédito", variable=pago_var, value=1).grid(row=8, column=1, sticky="w", padx=5)
+    ttk.Radiobutton(form_frame, text="Contado", variable=pago_var, value=2).grid(row=8, column=2, sticky="w", padx=5)
 
 
-    ttk.Label(form_frame, text="Solicita Envío:").grid(row=8, column=0, sticky="w", pady=5)
-    ttk.Checkbutton(form_frame, variable=envio_var, onvalue=1, offvalue=0).grid(row=8, column=1, sticky="w")
+    ttk.Label(form_frame, text="Solicita Envío:").grid(row=9, column=0, sticky="w", pady=5)
+    ttk.Checkbutton(form_frame, variable=envio_var, onvalue=1, offvalue=0).grid(row=9, column=1, sticky="w")
     
-    # Botón de Acción Principal (Mantiene el estilo Accent)
+    # Botón de Acción Principal (Guarda la OT y reinicia)
     ttk.Button(root_principal, text="Guardar Orden de Trabajo", command=guardar_ot, 
-              style='Accent.TButton').pack(pady=(5, 15))
+               style='Accent.TButton').pack(pady=(5, 15))
 
     # No ejecutamos mainloop para permitir que el caller gestione la ventana
+    # Asegurar modalidad si hay parent
+    try:
+        if parent:
+            root_principal.transient(parent)
+            root_principal.grab_set()
+            root_principal.focus_force()
+            root_principal.attributes('-topmost', True)
+    except Exception:
+        pass
+
     return root_principal
