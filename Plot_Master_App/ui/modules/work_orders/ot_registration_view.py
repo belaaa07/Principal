@@ -29,16 +29,17 @@ CIUDADES_CENTRAL = [
 
 # --- FUNCIONES DEL MÓDULO DE REGISTRO DE CLIENTES (Módulo 2) ---
 
-def guardar_cliente(ventana, nombre, ci_ruc, telefono, zona):
-    """Inserta el nuevo cliente en la tabla 'clientes' (Teléfono obligatorio)."""
+def guardar_cliente(ventana, nombre, ci_ruc, telefono, zona, email):
+    """Inserta el nuevo cliente en la tabla 'clientes' (Teléfono y Email obligatorios)."""
     nombre = nombre.strip()
     ci_ruc = ci_ruc.strip()
     telefono = telefono.strip()
     zona = zona.strip()
+    email = email.strip()
 
-    # VALIDACIÓN: Nombre, CI/RUC, y Teléfono son obligatorios
-    if not nombre or not ci_ruc or not telefono:
-        messagebox.showerror("Error de Validación", "Los campos Nombre, CI/RUC, y Teléfono son obligatorios.")
+    # VALIDACIÓN: Nombre, CI/RUC, Teléfono y Email son obligatorios
+    if not nombre or not ci_ruc or not telefono or not email:
+        messagebox.showerror("Error de Validación", "Los campos Nombre, CI/RUC, Teléfono y Email son obligatorios.")
         return
     
     if zona == "Seleccionar...":
@@ -46,7 +47,7 @@ def guardar_cliente(ventana, nombre, ci_ruc, telefono, zona):
          return
 
     # --- Lógica de guardado en Supabase ---
-    success, message = insert_client(nombre, ci_ruc, telefono, zona)
+    success, message = insert_client(nombre, ci_ruc, telefono, zona, email=email)
 
     if success:
         messagebox.showinfo("Registro Exitoso", message)
@@ -81,6 +82,7 @@ def abrir_modulo_registro_cliente(parent=None):
     nombre_var = tk.StringVar()
     ci_ruc_var_reg = tk.StringVar()
     telefono_var = tk.StringVar()
+    email_var = tk.StringVar()
     zona_combobox_var = tk.StringVar(value="Seleccionar...") 
 
     # --- Marco principal ---
@@ -106,8 +108,12 @@ def abrir_modulo_registro_cliente(parent=None):
     ttk.Label(reg_frame, text="Teléfono:").grid(row=4, column=0, sticky="w", pady=8)
     ttk.Entry(reg_frame, textvariable=telefono_var, width=35).grid(row=4, column=1, sticky="w")
     
-    # 5. Zona (Combobox Fijo con ciudades de Central)
-    ttk.Label(reg_frame, text="Zona/Ciudad:").grid(row=5, column=0, sticky="w", pady=8)
+    # 5. Email (Obligatorio)
+    ttk.Label(reg_frame, text="Email:").grid(row=5, column=0, sticky="w", pady=8)
+    ttk.Entry(reg_frame, textvariable=email_var, width=35).grid(row=5, column=1, sticky="w")
+    
+    # 6. Zona (Combobox Fijo con ciudades de Central)
+    ttk.Label(reg_frame, text="Zona/Ciudad:").grid(row=6, column=0, sticky="w", pady=8)
     
     zona_combobox = ttk.Combobox(
         reg_frame, 
@@ -116,23 +122,27 @@ def abrir_modulo_registro_cliente(parent=None):
         state="readonly", 
         width=32
     )
-    zona_combobox.grid(row=5, column=1, sticky="w")
+    zona_combobox.grid(row=6, column=1, sticky="w")
     
     # --- Botones de Acción ---
     button_frame = ttk.Frame(registro_root)
     button_frame.pack(pady=(15, 15))
 
     # Botón Guardar
+    def _on_guardar_cliente():
+        guardar_cliente(
+            registro_root,
+            nombre_var.get(),
+            ci_ruc_var_reg.get(),
+            telefono_var.get(),
+            zona_combobox_var.get(),
+            email_var.get()
+        )
+
     ttk.Button(button_frame, 
                text="Guardar Cliente", 
                style='Accent.TButton', 
-               command=lambda: guardar_cliente(
-                   registro_root, 
-                   nombre_var.get(), 
-                   ci_ruc_var_reg.get(), 
-                   telefono_var.get(), 
-                   zona_combobox_var.get()
-               )).pack(side=tk.LEFT, padx=15)
+               command=_on_guardar_cliente).pack(side=tk.LEFT, padx=15)
               
     # Botón Cancelar
     ttk.Button(button_frame, 
@@ -158,17 +168,26 @@ def validar_y_buscar(event=None):
         return
 
     # --- Búsqueda de cliente en Supabase ---
-    nombre_cliente = find_client_by_ci_ruc(ci_ruc)
+    cliente = find_client_by_ci_ruc(ci_ruc)
 
-    if nombre_cliente:
-        nombre_var.set(nombre_cliente)
-        registro_label.config(text="Cliente Registrado", fg="green")
+    if cliente:
+        nombre_var.set(cliente.get('nombre') or '')
+        try:
+            registro_label.config(text="Cliente Registrado", fg="green")
+        except Exception:
+            pass
     else:
         nombre_var.set("CLIENTE INEXISTENTE")
-        registro_label.config(text="⚠️ No encontrado", fg="red")
+        try:
+            registro_label.config(text="⚠️ No encontrado", fg="red")
+        except Exception:
+            pass
         # UX Improvement: Si el cliente no existe, mover el foco al botón de registrar.
         # Usamos after() para asegurar que el widget ya esté listo para recibir el foco.
-        root_principal.after(100, lambda: registrar_button.focus_set())
+        try:
+            root_principal.after(100, lambda: registrar_button.focus_set())
+        except Exception:
+            pass
         
 def guardar_ot(vendedor=None):
     """Función para recolectar, validar y guardar los datos de la OT."""
@@ -209,9 +228,16 @@ def guardar_ot(vendedor=None):
             "forma_pago": forma_pago,
             "envio_status": bool(envio_status)
         }
+        if descripcion_var.get():
+            datos_a_guardar['descripcion'] = descripcion_var.get()
         # Añadir vendedor de sesión si está disponible (no editable en el formulario)
         if vendedor:
             datos_a_guardar["vendedor"] = vendedor
+
+        # Confirmación antes de guardar
+        resumen = f"OT Nro: {ot_nro}\nFecha: {fecha}\nCliente: {nombre} ({ci_ruc})\nValor: {valor}\nSeña: {sena}\nForma Pago: {forma_pago}\nDescripcion: {datos_a_guardar.get('descripcion', '')}"
+        if not messagebox.askyesno("Confirmar guardado", f"¿Guardar la siguiente Orden de Trabajo?\n\n{resumen}"):
+            return
 
         # --- Lógica de guardado de OT en Supabase ---
         success, message = insert_work_order(datos_a_guardar)
@@ -282,6 +308,7 @@ def crear_modulo_ot(parent=None, vendedor=None):
 
     # --- Variables de Control ---
     global ot_var, fecha_var, ci_ruc_var, nombre_var, valor_var, sena_var, pago_var, envio_var
+    global descripcion_var
     global registro_label, registrar_button
     
     # --- Obtención del siguiente número de OT desde Supabase ---
@@ -291,6 +318,7 @@ def crear_modulo_ot(parent=None, vendedor=None):
     nombre_var = tk.StringVar()
     valor_var = tk.StringVar()
     sena_var = tk.StringVar()
+    descripcion_var = tk.StringVar()
     vendedor_display = vendedor if vendedor else "No asignado"
     pago_var = tk.IntVar(value=2) 
     envio_var = tk.IntVar(value=0) 
@@ -350,6 +378,10 @@ def crear_modulo_ot(parent=None, vendedor=None):
     ttk.Label(form_frame, text="Seña (Gs.):").grid(row=6, column=2, sticky="w", padx=(10, 0), pady=5)
     ttk.Entry(form_frame, textvariable=sena_var, width=15).grid(row=6, column=3, sticky="w")
 
+    # Descripción (nuevo campo)
+    ttk.Label(form_frame, text="Descripción:").grid(row=10, column=0, sticky="w", pady=8)
+    ttk.Entry(form_frame, textvariable=descripcion_var, width=60).grid(row=10, column=1, columnspan=3, sticky="w")
+
 
     # --- FILA 7 y 8: Opciones ---
     ttk.Label(form_frame, text="OPCIONES:", font=('Arial', 10, 'bold')).grid(row=7, column=0, columnspan=4, sticky="w", pady=(10, 5))
@@ -396,79 +428,102 @@ class OTForm(ctk.CTkFrame):
         self.nombre_var = tk.StringVar()
         self.valor_var = tk.StringVar()
         self.sena_var = tk.StringVar()
+        self.descripcion_var = tk.StringVar()
         self.pago_var = tk.IntVar(value=2)
         self.envio_var = tk.IntVar(value=0)
+        self.phone_var = tk.StringVar()
+        self.email_var = tk.StringVar()
+        self.status_var = tk.StringVar(value="Pendiente")
 
-        # Layout: two columns (cliente / orden)
         self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=2)
+        self.grid_rowconfigure(0, weight=1)
 
-        # Left: Datos del cliente
-        left = ctk.CTkFrame(self, fg_color="white", corner_radius=6)
-        left.grid(row=0, column=0, sticky="nsew", padx=(10, 8), pady=10)
-        left.grid_columnconfigure(0, weight=1)
+        # Usar un contenedor scrollable para que todo el formulario pueda desplazarse
+        self.scroll_container = ctk.CTkScrollableFrame(self, fg_color="#F7F7F7")
+        self.scroll_container.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        self.scroll_container.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(left, text="Detalles del cliente", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, sticky="w", padx=12, pady=(12, 8))
-        ctk.CTkLabel(left, text="CI | Ruc:").grid(row=1, column=0, sticky="w", padx=12, pady=(6, 0))
-        ci_entry = ctk.CTkEntry(left, textvariable=self.ci_ruc_var)
+        # --- SECTION A: Client Details ---
+        section_a = ctk.CTkFrame(self.scroll_container, fg_color="white", corner_radius=6)
+        section_a.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        section_a.grid_columnconfigure((0, 1, 2, 3), weight=1)
+
+        ctk.CTkLabel(section_a, text="A - Detalles del Cliente", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, columnspan=4, sticky="w", padx=12, pady=(12, 8))
+
+        ctk.CTkLabel(section_a, text="CI | Ruc:").grid(row=1, column=0, sticky="w", padx=12, pady=(6, 0))
+        ci_entry = ctk.CTkEntry(section_a, textvariable=self.ci_ruc_var)
         ci_entry.grid(row=2, column=0, sticky="ew", padx=12)
         ci_entry.bind("<Return>", self.validar_y_buscar)
         ci_entry.bind("<FocusOut>", self.validar_y_buscar)
+        
+        self.registro_label = ctk.CTkLabel(section_a, text="", text_color="gray")
+        self.registro_label.grid(row=2, column=1, sticky="w", padx=12, pady=(6, 0))
 
-        self.registro_label = ctk.CTkLabel(left, text="", text_color="gray")
-        self.registro_label.grid(row=3, column=0, sticky="w", padx=12, pady=(6, 0))
+        registrar_btn = ctk.CTkButton(section_a, text="Registrar cliente", command=self.abrir_registro_cliente)
+        registrar_btn.grid(row=2, column=3, sticky="e", padx=12, pady=(8, 8))
 
-        registrar_btn = ctk.CTkButton(left, text="Registrar cliente", command=self.abrir_registro_cliente)
-        registrar_btn.grid(row=4, column=0, sticky="ew", padx=12, pady=(8, 8))
+        ctk.CTkLabel(section_a, text="Nombre:").grid(row=3, column=0, columnspan=2, sticky="w", padx=12, pady=(6, 0))
+        ctk.CTkEntry(section_a, textvariable=self.nombre_var, state="readonly").grid(row=4, column=0, columnspan=2, sticky="ew", padx=12)
+        
+        ctk.CTkLabel(section_a, text="Email:").grid(row=3, column=2, columnspan=2, sticky="w", padx=12, pady=(6, 0))
+        ctk.CTkEntry(section_a, textvariable=self.email_var, state="readonly").grid(row=4, column=2, columnspan=2, sticky="ew", padx=12, pady=(0,12))
 
-        ctk.CTkLabel(left, text="Nombre contacto:").grid(row=5, column=0, sticky="w", padx=12, pady=(6, 0))
-        ctk.CTkEntry(left, textvariable=self.nombre_var, state="readonly").grid(row=6, column=0, sticky="ew", padx=12)
+        ctk.CTkLabel(section_a, text="Teléfono:").grid(row=5, column=0, columnspan=2, sticky="w", padx=12, pady=(6, 0))
+        ctk.CTkEntry(section_a, textvariable=self.phone_var, state="readonly").grid(row=6, column=0, columnspan=2, sticky="ew", padx=12, pady=(0,12))
 
-        ctk.CTkLabel(left, text="Teléfono contacto:").grid(row=7, column=0, sticky="w", padx=12, pady=(6, 0))
-        ctk.CTkEntry(left, textvariable=tk.StringVar(value=""), state="readonly").grid(row=8, column=0, sticky="ew", padx=12)
 
-        ctk.CTkLabel(left, text="Email contacto:").grid(row=9, column=0, sticky="w", padx=12, pady=(6, 12))
-        ctk.CTkEntry(left, textvariable=tk.StringVar(value=""), state="readonly").grid(row=10, column=0, sticky="ew", padx=12, pady=(0,12))
+        # --- SECTION B: Order Header ---
+        section_b = ctk.CTkFrame(self.scroll_container, fg_color="white", corner_radius=6)
+        section_b.grid(row=1, column=0, sticky="ew", padx=10, pady=10)
+        section_b.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
-        # Right: Detalles de la orden
-        right = ctk.CTkFrame(self, fg_color="white", corner_radius=6)
-        right.grid(row=0, column=1, sticky="nsew", padx=(8, 10), pady=10)
-        right.grid_columnconfigure(0, weight=1)
-        right.grid_columnconfigure(1, weight=1)
-        right.grid_columnconfigure(2, weight=1)
-        right.grid_columnconfigure(3, weight=1)
+        ctk.CTkLabel(section_b, text="B - Encabezado de la Orden", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, columnspan=4, sticky="w", padx=12, pady=(12, 8))
 
-        ctk.CTkLabel(right, text="Detalle de la orden", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, columnspan=4, sticky="w", padx=12, pady=(12,8))
+        ctk.CTkLabel(section_b, text="Nro de O.T.:").grid(row=1, column=0, sticky="w", padx=12, pady=6)
+        ctk.CTkLabel(section_b, textvariable=self.ot_var, text_color="#CC0000").grid(row=1, column=1, sticky="w", pady=6)
 
-        ctk.CTkLabel(right, text="Ot N°:").grid(row=1, column=0, sticky="w", padx=12, pady=6)
-        ctk.CTkLabel(right, textvariable=self.ot_var, text_color="#CC0000").grid(row=1, column=1, sticky="w", pady=6)
+        ctk.CTkLabel(section_b, text="Fecha:").grid(row=1, column=2, sticky="w", padx=12, pady=6)
+        ctk.CTkLabel(section_b, textvariable=self.fecha_var).grid(row=1, column=3, sticky="w", pady=6)
 
-        ctk.CTkLabel(right, text="Fecha:").grid(row=1, column=2, sticky="w", padx=12, pady=6)
-        ctk.CTkLabel(right, textvariable=self.fecha_var).grid(row=1, column=3, sticky="w", pady=6)
+        ctk.CTkLabel(section_b, text="Vendedor:").grid(row=2, column=0, sticky="w", padx=12, pady=6)
+        ctk.CTkLabel(section_b, text=self.vendedor or "No asignado", text_color="#006699").grid(row=2, column=1, sticky="w", pady=6)
 
-        ctk.CTkLabel(right, text="Vendedor:").grid(row=2, column=0, sticky="w", padx=12, pady=6)
-        ctk.CTkLabel(right, text=self.vendedor or "No asignado", text_color="#006699").grid(row=2, column=1, sticky="w", pady=6)
 
-        # Valores
-        ctk.CTkLabel(right, text="Valor Total (Gs.):").grid(row=3, column=0, sticky="w", padx=12, pady=(10,6))
-        ctk.CTkEntry(right, textvariable=self.valor_var).grid(row=3, column=1, sticky="w", pady=(10,6))
+        # --- SECTION C: Order Financial & Details ---
+        section_c = ctk.CTkFrame(self.scroll_container, fg_color="white", corner_radius=6)
+        section_c.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+        section_c.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
-        ctk.CTkLabel(right, text="Seña (Gs.):").grid(row=3, column=2, sticky="w", padx=12, pady=(10,6))
-        ctk.CTkEntry(right, textvariable=self.sena_var).grid(row=3, column=3, sticky="w", pady=(10,6))
+        ctk.CTkLabel(section_c, text="C - Detalles y Financiero", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, columnspan=4, sticky="w", padx=12, pady=(12, 8))
 
-        # Opciones
-        ctk.CTkLabel(right, text="Forma de Pago:").grid(row=4, column=0, sticky="w", padx=12, pady=(8,6))
-        pago_seg = ctk.CTkSegmentedButton(right, values=["Crédito", "Contado"], command=self._on_pago_changed)
-        pago_seg.grid(row=4, column=1, sticky="w", pady=(8,6))
+        ctk.CTkLabel(section_c, text="Valor Total (Gs.):").grid(row=1, column=0, sticky="w", padx=12, pady=(10,6))
+        ctk.CTkEntry(section_c, textvariable=self.valor_var).grid(row=1, column=1, sticky="w", pady=(10,6))
+
+        ctk.CTkLabel(section_c, text="Seña (Gs.):").grid(row=1, column=2, sticky="w", padx=12, pady=(10,6))
+        ctk.CTkEntry(section_c, textvariable=self.sena_var).grid(row=1, column=3, sticky="w", pady=(10,6))
+
+        ctk.CTkLabel(section_c, text="Forma de Pago:").grid(row=2, column=0, sticky="w", padx=12, pady=(8,6))
+        pago_seg = ctk.CTkSegmentedButton(section_c, values=["Crédito", "Contado"], command=self._on_pago_changed)
+        pago_seg.grid(row=2, column=1, sticky="w", pady=(8,6))
         pago_seg.set("Contado" if self.pago_var.get() == 2 else "Crédito")
 
-        ctk.CTkLabel(right, text="Solicita Envío:").grid(row=4, column=2, sticky="w", padx=12, pady=(8,6))
-        envio_chk = ctk.CTkCheckBox(right, text="", command=self._on_envio_toggled)
-        envio_chk.grid(row=4, column=3, sticky="w", pady=(8,6))
+        ctk.CTkLabel(section_c, text="Solicita Envío:").grid(row=2, column=2, sticky="w", padx=12, pady=(8,6))
+        envio_chk = ctk.CTkCheckBox(section_c, text="", variable=self.envio_var, onvalue=1, offvalue=0)
+        envio_chk.grid(row=2, column=3, sticky="w", pady=(8,6))
 
-        # Botón Guardar
-        save_btn = ctk.CTkButton(right, text="Guardar Orden de Trabajo", fg_color="#2D9CDB", command=self.guardar_ot)
-        save_btn.grid(row=6, column=3, sticky="e", padx=12, pady=12)
+        ctk.CTkLabel(section_c, text="Descripción:").grid(row=3, column=0, sticky="nw", padx=12, pady=(8,6))
+        ctk.CTkEntry(section_c, textvariable=self.descripcion_var, width=60).grid(row=3, column=1, columnspan=3, sticky="ew", padx=12, pady=(8,6))
+
+        ctk.CTkLabel(section_c, text="Estado de la O.T.:").grid(row=4, column=0, sticky="w", padx=12, pady=(8,6))
+        status_menu = ctk.CTkOptionMenu(section_c, variable=self.status_var, values=["Pendiente", "En Proceso", "Finalizado", "Entregado"])
+        status_menu.grid(row=4, column=1, sticky="w", pady=(8,6))
+
+        # Contenedor inferior fijo para acciones (botón guardar) — siempre visible
+        bottom_actions = ctk.CTkFrame(self, fg_color="#F7F7F7")
+        bottom_actions.grid(row=1, column=0, sticky="ew", padx=6, pady=(0,6))
+        bottom_actions.grid_columnconfigure(0, weight=1)
+        save_btn = ctk.CTkButton(bottom_actions, text="Guardar Orden de Trabajo", fg_color="#2D9CDB", command=self.guardar_ot, width=220)
+        save_btn.grid(row=0, column=0, sticky="e", padx=10, pady=12)
 
     def _on_pago_changed(self, value):
         if value == "Crédito":
@@ -493,7 +548,10 @@ class OTForm(ctk.CTkFrame):
             return
         nombre_cliente = find_client_by_ci_ruc(ci)
         if nombre_cliente:
-            self.nombre_var.set(nombre_cliente)
+            # nombre_cliente now is a dict
+            self.nombre_var.set(nombre_cliente.get('nombre') or "")
+            self.phone_var.set(nombre_cliente.get('telefono') or "")
+            self.email_var.set(nombre_cliente.get('email') or "")
             self.registro_label.configure(text="Cliente Registrado", text_color="green")
         else:
             self.nombre_var.set("CLIENTE INEXISTENTE")
@@ -534,10 +592,20 @@ class OTForm(ctk.CTkFrame):
                 "valor": valor,
                 "sena": sena,
                 "forma_pago": forma_pago,
-                "envio_status": bool(envio_status)
+                "envio_status": bool(envio_status),
+                "status": self.status_var.get()
             }
+            # Añadir descripción si fue completada
+            if self.descripcion_var.get():
+                datos_a_guardar['descripcion'] = self.descripcion_var.get()
             if self.vendedor:
                 datos_a_guardar["vendedor"] = self.vendedor
+
+            # Confirmación antes de guardar
+            resumen = f"OT Nro: {ot_nro}\nFecha: {fecha}\nCliente: {nombre} ({ci_ruc})\nValor: {valor}\nSeña: {sena}\nForma Pago: {forma_pago}\nDescripcion: {datos_a_guardar.get('descripcion', '')}\nEstado: {datos_a_guardar.get('status', '')}"
+            confirmar = messagebox.askyesno("Confirmar guardado", f"¿Guardar la siguiente Orden de Trabajo?\n\n{resumen}")
+            if not confirmar:
+                return
 
             success, message = insert_work_order(datos_a_guardar)
             if success:
