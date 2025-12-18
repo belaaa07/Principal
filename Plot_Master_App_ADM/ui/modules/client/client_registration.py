@@ -37,16 +37,25 @@ class ModuloClientes(ctk.CTkFrame):
 
         cont_tabla = ctk.CTkFrame(self.frame_izq, fg_color="transparent")
         cont_tabla.pack(expand=True, fill="both", padx=15, pady=5)
+        cont_tabla.grid_rowconfigure(0, weight=1)
+        cont_tabla.grid_columnconfigure(0, weight=1)
 
         columnas = ("nro", "ruc", "nombre", "tel", "email", "ciudad")
         self.tabla = ttk.Treeview(cont_tabla, columns=columnas, show="headings")
+
+        # --- SCROLLBARS ---
+        scroll_v = ctk.CTkScrollbar(cont_tabla, orientation="vertical", command=self.tabla.yview)
+        scroll_h = ctk.CTkScrollbar(cont_tabla, orientation="horizontal", command=self.tabla.xview)
+        self.tabla.configure(yscrollcommand=scroll_v.set, xscrollcommand=scroll_h.set)
 
         anchos = {"nro": 60, "ruc": 110, "nombre": 250, "tel": 120, "email": 200, "ciudad": 150}
         for col in columnas:
             self.tabla.heading(col, text=col.upper())
             self.tabla.column(col, width=anchos[col], anchor="center")
 
-        self.tabla.pack(side="left", expand=True, fill="both")
+        self.tabla.grid(row=0, column=0, sticky="nsew")
+        scroll_v.grid(row=0, column=1, sticky="ns")
+        scroll_h.grid(row=1, column=0, sticky="ew")
         self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_cliente)
         
         self.actualizar_tabla()

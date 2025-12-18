@@ -74,15 +74,15 @@ class ModuloOTs(ctk.CTkFrame):
 
         cont_tabla_v = ctk.CTkFrame(self.frame_izq, fg_color="transparent")
         cont_tabla_v.pack(expand=True, fill="both", padx=15, pady=(0, 5))
+        cont_tabla_v.grid_rowconfigure(0, weight=1)
+        cont_tabla_v.grid_columnconfigure(0, weight=1)
 
         columnas = ("ot", "fecha", "vendedor", "cliente", "descripcion", "monto", "abonado", "pago", "estado")
         self.tabla = ttk.Treeview(cont_tabla_v, columns=columnas, show="headings")
 
         self.scroll_v_tabla = ctk.CTkScrollbar(cont_tabla_v, orientation="vertical", command=self.tabla.yview)
-        self.tabla.configure(yscrollcommand=self.scroll_v_tabla.set)
-
-        self.scroll_h_tabla = ctk.CTkScrollbar(self.frame_izq, orientation="horizontal", command=self.tabla.xview)
-        self.tabla.configure(xscrollcommand=self.scroll_h_tabla.set)
+        self.scroll_h_tabla = ctk.CTkScrollbar(cont_tabla_v, orientation="horizontal", command=self.tabla.xview)
+        self.tabla.configure(yscrollcommand=self.scroll_v_tabla.set, xscrollcommand=self.scroll_h_tabla.set)
 
         # CONFIGURACIÓN DE COLORES
         self.tabla.tag_configure("pendiente", background="#E0E0E0") # Gris
@@ -95,9 +95,9 @@ class ModuloOTs(ctk.CTkFrame):
             self.tabla.heading(col, text=col.upper())
             self.tabla.column(col, width=anchos[col], anchor="center", stretch=False)
 
-        self.tabla.pack(side="left", expand=True, fill="both")
-        self.scroll_v_tabla.pack(side="right", fill="y")
-        self.scroll_h_tabla.pack(side="bottom", fill="x", padx=15, pady=(0, 15))
+        self.tabla.grid(row=0, column=0, sticky="nsew")
+        self.scroll_v_tabla.grid(row=0, column=1, sticky="ns")
+        self.scroll_h_tabla.grid(row=1, column=0, sticky="ew")
 
         self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_fila)
         self.actualizar_tabla()
