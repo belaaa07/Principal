@@ -252,6 +252,39 @@ def get_work_orders_by_vendedor(vendedor: str):
         return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
 
 
+def update_work_order_status(ot_nro, new_status: str):
+    """Actualiza el campo `status` de una orden de trabajo identificada por `ot_nro`.
+    Retorna (True, mensaje) o (False, mensaje). No cambia la estructura de la tabla.
+    """
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+
+    try:
+        # Normalizar estado antes de persistir
+        def _normalize_status(s):
+            if not s: return 'Pendiente'
+            s2 = str(s).strip().lower()
+            if s2 in ('pendiente', 'pending'):
+                return 'Pendiente'
+            if s2 in ('aprobado', 'aprovado'):
+                return 'Aprobado'
+            if 'entreg' in s2:
+                return 'Entregado'
+            if s2 in ('finalizado', 'finalizado/a', 'final'):
+                return 'Finalizado'
+            return 'Pendiente'
+
+        status_norm = _normalize_status(new_status)
+        response = supabase.table('ordenes_trabajo').update({'status': status_norm}).eq('ot_nro', ot_nro).execute()
+        # supabase-py may return response.error or raise; check both
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+        return True, f"Estado actualizado a '{status_norm}' para OT {ot_nro}."
+    except Exception as e:
+        print(f"Error al actualizar estado de OT {ot_nro}: {e}")
+        return False, f"Error al actualizar estado: {e}"
+
+
 def verify_user_credentials(ci_ruc: str, password: str):
     """Verifica credenciales. Retorna (True, nombre) o (False, mensaje)."""
     if not supabase:

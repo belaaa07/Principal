@@ -64,8 +64,36 @@ class OTsFrame(ctk.CTkFrame):
         if isinstance(parent, ctk.CTk):
             parent.title("Plot Master App - Gestión de OTs")
             parent.geometry("1200x800")
-        # Cargar datos iniciales
+        # Cargar desde Supabase (obligatorio). No usar datos locales.
         self.datos_ots = []
+        if get_work_orders_by_vendedor and self.vendedor:
+            ok, data = get_work_orders_by_vendedor(self.vendedor)
+            if ok and isinstance(data, list):
+                mapped = []
+                for row in data:
+                    try:
+                        ot_nro = row.get('ot_nro')
+                        fecha = row.get('fecha_creacion')
+                        fecha_str = fecha if isinstance(fecha, str) else (fecha.strftime('%d/%m/%Y') if fecha else '')
+                        cliente = row.get('cliente_ci_ruc') or ''
+                        descripcion = row.get('descripcion') or ''
+                        monto = row.get('valor_total') or 0
+                        forma_pago = row.get('forma_pago') or ''
+                        estado = normalize_estado(row.get('status'))
+                        envio = 'Con Envío' if row.get('solicita_envio') else 'Sin Envío (Retira)'
+                        pagos = row.get('pagos') or []
+                        mapped.append({
+                            'ot': str(ot_nro), 'fecha': fecha_str, 'vendedor': row.get('vendedor') or '',
+                            'cliente': cliente, 'descripcion': descripcion, 'monto': float(monto) if monto is not None else 0,
+                            'pagos': pagos, 'pago': forma_pago, 'estado': estado, 'envio': envio
+                        })
+                    except Exception:
+                        continue
+                self.datos_ots = mapped
+        else:
+            # Si no hay servicio o no se indicó vendedor, dejar la lista vacía
+            self.datos_ots = []
+
         self.ot_seleccionada = None
 
         self.grid_columnconfigure(0, weight=1)
@@ -75,9 +103,6 @@ class OTsFrame(ctk.CTkFrame):
         # Crear UI
         self.crear_planilla_izquierda()
         self.crear_detalle_derecha()
-        
-        # Cargar datos al final para que la UI esté lista
-        self.reload_data()
 
     def crear_planilla_izquierda(self):
         self.frame_izq = ctk.CTkFrame(self, fg_color="#FAFAFA", corner_radius=8, border_width=1, border_color="#D0D0D0")
@@ -87,16 +112,12 @@ class OTsFrame(ctk.CTkFrame):
         header.pack(fill="x", padx=20, pady=15)
 
         ctk.CTkLabel(header, text="Órdenes de Trabajo", font=("Arial", 20, "bold"), text_color="#2C3E50").pack(side="left")
-
-        # Botón para recargar datos
-        self.btn_recargar = ctk.CTkButton(header, text="Recargar", width=100, command=self.reload_data)
-        self.btn_recargar.pack(side="left", padx=(20, 0))
         
         # FILTRO DE ESTADO (usar lista canónica)
         self.filtro_var = ctk.StringVar(value="Todos")
         estados_permitidos = ["Pendiente", "Aprobado", "Entregado", "Finalizado"]
         self.combo_filtro = ctk.CTkComboBox(header, values=["Todos"] + estados_permitidos,
-                variable=self.filtro_var, command=self.actualizar_tabla, width=180)
+                variable=self.filtro_var, command=self.actualizar_tabla, width=220)
         self.combo_filtro.pack(side="left", padx=20)
 
         self.entry_busqueda = ctk.CTkEntry(header, placeholder_text="🔍 Buscar...", width=300)
@@ -149,6 +170,7 @@ class OTsFrame(ctk.CTkFrame):
         self.scroll_h_tabla.grid(row=1, column=0, sticky="ew")
 
         self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_fila)
+        self.actualizar_tabla()
 
     def crear_detalle_derecha(self):
         # PANEL DERECHO CON SCROLL VERTICAL (detalle similar a la referencia)
@@ -173,16 +195,16 @@ class OTsFrame(ctk.CTkFrame):
         # --- NUEVO CAMPO: ENVÍO ---
         f_env = ctk.CTkFrame(self.info_container, fg_color="transparent")
         f_env.pack(fill="x", pady=2)
-        ctk.CTkLabel(f_env, text="Tipo Envío:", font=("Arial", 11, "bold"), width=110, anchor="w").pack(side="left")
+        ctk.CTkLabel(f_env, text="Tipo Envío:", font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
         self.lbl_envio = ctk.CTkLabel(f_env, text="---", font=("Arial", 11, "bold"), text_color="#2980B9")
-        self.lbl_envio.pack(side="left", padx=(6,0))
+        self.lbl_envio.pack(side="left")
         # --------------------------
 
         f_desc = ctk.CTkFrame(self.info_container, fg_color="transparent")
         f_desc.pack(fill="x", pady=5)
-        ctk.CTkLabel(f_desc, text="Descripción:", font=("Segoe UI", 11, "bold"), width=110, anchor="w").pack(side="left")
-        self.lbl_desc = ctk.CTkLabel(f_desc, text="---", font=("Segoe UI", 11), wraplength=260, justify="left")
-        self.lbl_desc.pack(side="left", padx=(6,0))
+        ctk.CTkLabel(f_desc, text="Descripción:", font=("Segoe UI", 11, "bold"), width=90, anchor="w").pack(side="left")
+        self.lbl_desc = ctk.CTkLabel(f_desc, text="---", font=("Segoe UI", 11), wraplength=300, justify="left")
+        self.lbl_desc.pack(side="left")
 
         self.lbl_pago = self.crear_dato("Forma Pago:")
 
@@ -229,48 +251,6 @@ class OTsFrame(ctk.CTkFrame):
     def crear_separador(self):
         linea = ctk.CTkFrame(self.frame_det, height=2, fg_color="#EEEEEE")
         linea.pack(fill="x", padx=10, pady=15)
-
-    def reload_data(self):
-        """Recarga los datos desde la base de datos y actualiza la tabla."""
-        if get_work_orders_by_vendedor and self.vendedor:
-            ok, data = get_work_orders_by_vendedor(self.vendedor)
-            if ok and isinstance(data, list):
-                mapped = []
-                for row in data:
-                    try:
-                        ot_nro = row.get('ot_nro')
-                        fecha_creacion = row.get('fecha_creacion')
-                        fecha_str = ''
-                        if fecha_creacion:
-                            # Handle date as string (YYYY-MM-DDTHH:MM:SS) or datetime object
-                            fecha_para_procesar = str(fecha_creacion).split('T')[0]
-                            try:
-                                # Reformat from YYYY-MM-DD to DD/MM/YYYY
-                                fecha_dt = datetime.strptime(fecha_para_procesar, '%Y-%m-%d')
-                                fecha_str = fecha_dt.strftime('%d/%m/%Y')
-                            except ValueError:
-                                # Fallback to whatever was parsed if format is unexpected
-                                fecha_str = fecha_para_procesar
-                        cliente = row.get('cliente_ci_ruc') or ''
-                        descripcion = row.get('descripcion') or ''
-                        monto = row.get('valor_total') or 0
-                        forma_pago = row.get('forma_pago') or ''
-                        estado = normalize_estado(row.get('status'))
-                        envio = 'Con Envío' if row.get('solicita_envio') else 'Sin Envío (Retira)'
-                        pagos = row.get('pagos') or []
-                        mapped.append({
-                            'ot': str(ot_nro), 'fecha': fecha_str, 'vendedor': row.get('vendedor') or '',
-                            'cliente': cliente, 'descripcion': descripcion, 'monto': float(monto) if monto is not None else 0,
-                            'pagos': pagos, 'pago': forma_pago, 'estado': estado, 'envio': envio
-                        })
-                    except Exception:
-                        continue
-                self.datos_ots = mapped
-        else:
-            # Si no hay servicio o no se indicó vendedor, dejar la lista vacía
-            self.datos_ots = []
-        
-        self.actualizar_tabla()
 
     def actualizar_tabla(self, e=None):
         # Preserve selection if possible
@@ -372,21 +352,21 @@ class OTsFrame(ctk.CTkFrame):
 
     def cambiar_estado(self, nuevo_estado):
         if self.ot_seleccionada:
-            # Normalizar al conjunto permitido
-            estado_norm = normalize_estado(nuevo_estado)
-            ot_n = self.ot_seleccionada.get('ot')
-            # Intentar persistir en la base de datos si el servicio está disponible
-            if update_work_order_status:
-                try:
-                    ok, msg = update_work_order_status(ot_n, estado_norm)
-                except Exception as ex:
-                    ok, msg = False, str(ex)
-                if not ok:
-                    messagebox.showerror("Error", f"No se pudo actualizar estado en la base de datos: {msg}")
-                    return
+            # Intentar persistir el cambio en la base de datos si el servicio está disponible
+            ot_id = self.ot_seleccionada.get('ot')
+            # Try to convert to int when possible (DB probably stores numeric ot_nro)
+            try:
+                ot_key = int(ot_id)
+            except Exception:
+                ot_key = ot_id
 
-            # Actualizar en memoria y refrescar UI
-            self.ot_seleccionada['estado'] = estado_norm
+            if update_work_order_status:
+                ok, msg = update_work_order_status(ot_key, nuevo_estado)
+                if not ok:
+                    messagebox.showerror("Error al actualizar", f"No se pudo actualizar el estado en la base de datos: {msg}")
+                    return
+            # Actualizar en memoria y UI
+            self.ot_seleccionada['estado'] = normalize_estado(nuevo_estado)
             self.actualizar_tabla(); self.refrescar_detalle()
 
 # Backwards compatibility: some modules import `ModuloOTs`
