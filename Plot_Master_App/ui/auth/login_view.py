@@ -64,17 +64,21 @@ class LoginFrame(ctk.CTkFrame):
         nombre_reg_entry = ctk.CTkEntry(ventana_registro, placeholder_text="Nombre Completo", width=280)
         nombre_reg_entry.pack(pady=5)
 
+        email_reg_entry = ctk.CTkEntry(ventana_registro, placeholder_text="Email (opcional)", width=280)
+        email_reg_entry.pack(pady=5)
+
         contrasena_reg_entry = ctk.CTkEntry(ventana_registro, placeholder_text="Contraseña", show="*", width=280)
         contrasena_reg_entry.pack(pady=5)
 
         def _registrar():
             ci_reg = ci_reg_entry.get().strip()
             nombre_reg = nombre_reg_entry.get().strip()
+            email_reg = email_reg_entry.get().strip() or None
             contrasena_reg = contrasena_reg_entry.get().strip()
             if not ci_reg or not nombre_reg or not contrasena_reg:
                 messagebox.showwarning("Campos Requeridos", "Todos los campos son obligatorios.")
                 return
-            ok, msg = create_user(nombre_reg, ci_reg, contrasena_reg)
+            ok, msg = create_user(nombre_reg, ci_reg, contrasena_reg, email_reg)
             if ok:
                 messagebox.showinfo("Registro Exitoso", msg)
                 ventana_registro.destroy()

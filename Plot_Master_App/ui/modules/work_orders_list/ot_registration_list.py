@@ -3,9 +3,10 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 # Usar servicio de BD (obligatorio)
 try:
-    from services.supabase_service import get_work_orders_by_vendedor
+    from services.supabase_service import get_work_orders_by_vendedor, update_work_order_status
 except Exception:
     get_work_orders_by_vendedor = None
+    update_work_order_status = None
 
 # --- CONFIGURACIÓN DE ESTILO ---
 ctk.set_appearance_mode("light") 
@@ -352,7 +353,20 @@ class OTsFrame(ctk.CTkFrame):
     def cambiar_estado(self, nuevo_estado):
         if self.ot_seleccionada:
             # Normalizar al conjunto permitido
-            self.ot_seleccionada['estado'] = normalize_estado(nuevo_estado)
+            estado_norm = normalize_estado(nuevo_estado)
+            ot_n = self.ot_seleccionada.get('ot')
+            # Intentar persistir en la base de datos si el servicio está disponible
+            if update_work_order_status:
+                try:
+                    ok, msg = update_work_order_status(ot_n, estado_norm)
+                except Exception as ex:
+                    ok, msg = False, str(ex)
+                if not ok:
+                    messagebox.showerror("Error", f"No se pudo actualizar estado en la base de datos: {msg}")
+                    return
+
+            # Actualizar en memoria y refrescar UI
+            self.ot_seleccionada['estado'] = estado_norm
             self.actualizar_tabla(); self.refrescar_detalle()
 
 # Backwards compatibility: some modules import `ModuloOTs`
