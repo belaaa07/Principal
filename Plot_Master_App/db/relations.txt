@@ -1,0 +1,7 @@
+RELATIONS:
+
+ordenes_trabajo.cliente_ci_ruc
+→ clientes.ci_ruc
+
+ordenes_trabajo.vendedor
+→ usuarios.ci_ruc

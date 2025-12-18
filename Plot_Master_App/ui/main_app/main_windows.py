@@ -141,36 +141,43 @@ class MainAppFrame(ctk.CTkFrame):
             parent.grid_rowconfigure(0, weight=1)
         except Exception:
             pass
-        self.grid_columnconfigure(0, weight=0)
+        
+        self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+
+        # ------------------------------------------------------------------
+        # 1. Creación del Header
+        # ------------------------------------------------------------------
+        self.header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#263238", height=50)
+        self.header_frame.grid(row=0, column=0, columnspan=2, sticky="ew")
+        
+        self.header_frame.grid_columnconfigure(0, weight=1)
+        self.header_frame.grid_columnconfigure(1, weight=1)
+
+        self.title_label = ctk.CTkLabel(self.header_frame,
+                        text="Plot Master",
+                        font=ctk.CTkFont(size=18, weight="bold"),
+                        text_color="white")
+        self.title_label.grid(row=0, column=0, padx=20, pady=(16, 8), sticky="w")
+
+        self.user_label = ctk.CTkLabel(self.header_frame,
+                   text=f"👤  {self.user_name}",
+                   anchor="e",
+                   font=ctk.CTkFont(size=13, weight="normal"),
+                   text_color="white")
+        self.user_label.grid(row=0, column=1, padx=20, sticky="e")
 
         # ------------------------------------------------------------------
         # 2. Creación del Marco de Navegación (Sidebar)
         # ------------------------------------------------------------------
         
         self.navigation_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#263238")
-        self.navigation_frame.grid(row=0, column=0, sticky="ns")
+        self.navigation_frame.grid(row=1, column=0, sticky="ns")
         self.navigation_frame.grid_rowconfigure(12, weight=1)
 
         # ------------------------------------------------------------------
         # 3. Elementos Fijos del Sidebar
         # ------------------------------------------------------------------
-        
-        self.title_label = ctk.CTkLabel(self.navigation_frame,
-                        text="Plot Master",
-                        font=ctk.CTkFont(size=18, weight="bold"),
-                        text_color="white")
-        self.title_label.grid(row=0, column=0, padx=20, pady=(16, 8), sticky="w")
-
-        self.user_frame = ctk.CTkFrame(self.navigation_frame, fg_color="transparent")
-        self.user_frame.grid(row=1, column=0, padx=10, pady=(6, 12), sticky="ew")
-        self.user_label = ctk.CTkLabel(self.user_frame,
-                   text=f"👤  {self.user_name}",
-                   anchor="w",
-                   font=ctk.CTkFont(size=13, weight="normal"),
-                   text_color="white")
-        self.user_label.pack(fill="x")
 
         # MENÚ
         self.menu_separator = ctk.CTkLabel(self.navigation_frame,
@@ -196,36 +203,16 @@ class MainAppFrame(ctk.CTkFrame):
 
         self.ordenes_button = create_nav_button(4, "📋  Órdenes de trabajo", "ordenes")
         self.ordenes_button.grid(row=4, column=0, sticky="ew", padx=6)
-
-        # CATÁLOGO
-        self.catalogo_separator = ctk.CTkLabel(self.navigation_frame,
-                                               text="CATÁLOGO",
-                                               font=ctk.CTkFont(size=12, weight="bold"),
-                                               text_color="#B0BEC5")
-        self.catalogo_separator.grid(row=5, column=0, padx=16, pady=(12, 6), sticky="w")
-
-        self.clientes_button = create_nav_button(6, "👥  Clientes", "clientes")
-        self.clientes_button.grid(row=6, column=0, sticky="ew", padx=6)
-
-        self.reportes_button = create_nav_button(7, "📊  Reportes", "reportes")
-        self.reportes_button.grid(row=7, column=0, sticky="ew", padx=6)
-
-        # CONFIGURACIÓN
-        self.config_separator = ctk.CTkLabel(self.navigation_frame,
-                                             text="CONFIGURACIÓN",
-                                             font=ctk.CTkFont(size=12, weight="bold"),
-                                             text_color="#B0BEC5")
-        self.config_separator.grid(row=8, column=0, padx=16, pady=(12, 6), sticky="w")
-
-        self.acceso_button = create_nav_button(9, "⚙️  Administrar accesos", "acceso")
-        self.acceso_button.grid(row=9, column=0, sticky="ew", padx=6)
         
+        self.ordenes_list_button = create_nav_button(5, "📈 Planilla de OTs", "ordenes_list")
+        self.ordenes_list_button.grid(row=5, column=0, sticky="ew", padx=6)
+
         # ------------------------------------------------------------------
         # 5. Marcos de Contenido (Módulos) - ¡Conexión!
         # ------------------------------------------------------------------
         
         self.main_content_frame = ctk.CTkFrame(self, corner_radius=10, fg_color="#F7F7F7") 
-        self.main_content_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
+        self.main_content_frame.grid(row=1, column=1, padx=20, pady=20, sticky="nsew")
         self.main_content_frame.grid_rowconfigure(0, weight=1)
         self.main_content_frame.grid_columnconfigure(0, weight=1)
         
@@ -260,28 +247,20 @@ class MainAppFrame(ctk.CTkFrame):
         frame = self._create_module_frame("Módulo de Inicio")
         frame.grid(row=0, column=0, sticky="nsew")
 
-    def _show_clientes(self):
-        self._clear_central()
-        frame = self._create_module_frame("Módulo: Clientes")
-        frame.grid(row=0, column=0, sticky="nsew")
-
-    def _show_reportes(self):
-        self._clear_central()
-        frame = self._create_module_frame("Módulo: Reportes")
-        frame.grid(row=0, column=0, sticky="nsew")
-
-    def _show_acceso(self):
-        self._clear_central()
-        frame = self._create_module_frame("Módulo: Administrar Accesos")
-        frame.grid(row=0, column=0, sticky="nsew")
-
     def _show_ordenes(self):
         self._clear_central()
         crear_modulo_ot_embedded(parent=self.central_container, vendedor=self.user_name)
 
+    def _show_ordenes_list(self):
+        self._clear_central()
+        from ..modules.work_orders_list.ot_registration_list import ModuloOTs
+        self.central_container.grid_columnconfigure(0, weight=1)
+        ordenes_list_frame = ModuloOTs(self.central_container)
+        ordenes_list_frame.grid(row=0, column=0, sticky="nsew")
+
     def select_frame_by_name(self, name):
         # Lógica de navegación principal (sidebar)
-        buttons = [self.inicio_button, self.ordenes_button, self.clientes_button, self.reportes_button, self.acceso_button]
+        buttons = [self.inicio_button, self.ordenes_button, self.ordenes_list_button]
         for button in buttons:
             button.configure(fg_color="transparent")
 
@@ -293,15 +272,9 @@ class MainAppFrame(ctk.CTkFrame):
         elif name == "ordenes":
             self.ordenes_button.configure(fg_color=active_color)
             self._show_ordenes()
-        elif name == "clientes":
-            self.clientes_button.configure(fg_color=active_color)
-            self._show_clientes()
-        elif name == "reportes":
-            self.reportes_button.configure(fg_color=active_color)
-            self._show_reportes()
-        elif name == "acceso":
-            self.acceso_button.configure(fg_color=active_color)
-            self._show_acceso()
+        elif name == "ordenes_list":
+            self.ordenes_list_button.configure(fg_color=active_color)
+            self._show_ordenes_list()
 
 
 # --------------------------------------------------------------------------

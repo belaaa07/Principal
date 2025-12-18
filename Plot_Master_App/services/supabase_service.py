@@ -69,19 +69,24 @@ def get_next_client_number():
         return 1 # Fallback
 
 def find_client_by_ci_ruc(ci_ruc: str):
-    """Busca un cliente por su CI/RUC y devuelve su nombre si lo encuentra."""
+    """Busca un cliente por su CI/RUC y devuelve un dict {nombre, telefono, email} o None."""
     if not supabase: return None
 
     try:
-        response = supabase.table('clientes').select('nombre').eq('ci_ruc', ci_ruc).limit(1).execute()
+        response = supabase.table('clientes').select('nombre, telefono, email').eq('ci_ruc', ci_ruc).limit(1).execute()
         if response.data:
-            return response.data[0]['nombre']
+            row = response.data[0]
+            return {
+                'nombre': row.get('nombre'),
+                'telefono': row.get('telefono'),
+                'email': row.get('email')
+            }
         return None
     except Exception as e:
         print(f"Error al buscar cliente: {e}")
         return None
 
-def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str):
+def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str, email: str = None):
     """Inserta un nuevo cliente en la base de datos."""
     if not supabase: return False, "No hay conexión con la base de datos."
 
@@ -90,7 +95,8 @@ def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str):
             'nombre': nombre,
             'ci_ruc': ci_ruc,
             'telefono': telefono,
-            'zona': zona
+            'zona': zona,
+            'email': email
         }).execute()
         return True, "Cliente guardado correctamente."
     except Exception as e:
@@ -112,8 +118,12 @@ def insert_work_order(ot_data: dict):
             'valor_total': ot_data['valor'],
             'sena': ot_data['sena'],
             'forma_pago': ot_data['forma_pago'],
-            'solicita_envio': ot_data['envio_status']
+            'solicita_envio': ot_data['envio_status'],
+            'status': ot_data['status']
         }
+        # Añadir descripción si viene (campo nuevo en esquema)
+        if 'descripcion' in ot_data:
+            payload['descripcion'] = ot_data['descripcion']
         # Añadir vendedor si se provee en ot_data
         if 'vendedor' in ot_data and ot_data['vendedor']:
             payload['vendedor'] = ot_data['vendedor']
@@ -194,6 +204,21 @@ def get_user_by_ci_ruc(ci_ruc: str):
         # Devolver None y loguear; el caller debe manejar el mensaje al usuario
         print(f"Error al obtener usuario: {e}")
         return None
+
+
+def get_all_work_orders():
+    """Obtiene todas las órdenes de trabajo de la base de datos."""
+    if not supabase: return False, "No hay conexión con la base de datos."
+
+    try:
+        response = supabase.table('ordenes_trabajo').select('*').order('fecha_creacion', desc=True).execute()
+        if response.data:
+            return True, response.data
+        else:
+            return True, []
+    except Exception as e:
+        print(f"Error al obtener las órdenes de trabajo: {e}")
+        return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
 
 
 def verify_user_credentials(ci_ruc: str, password: str):
