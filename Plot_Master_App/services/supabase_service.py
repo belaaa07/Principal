@@ -111,6 +111,23 @@ def insert_work_order(ot_data: dict):
     if not supabase: return False, "No hay conexión con la base de datos."
 
     try:
+        def _normalize_status(s):
+            # Canonical states: Pendiente, Aprobado, Entregado, Finalizado
+            if not s: return 'Pendiente'
+            s2 = str(s).strip().lower()
+            if s2 in ('pendiente', 'pending'):
+                return 'Pendiente'
+            if s2 in ('aprobado', 'aprovado'):
+                return 'Aprobado'
+            if 'entreg' in s2:
+                return 'Entregado'
+            if s2 in ('finalizado', 'finalizado/a', 'final'):
+                return 'Finalizado'
+            return 'Pendiente'
+
+        # Normalize incoming status to the canonical set
+        status_norm = _normalize_status(ot_data.get('status'))
+
         payload = {
             'ot_nro': ot_data['ot_nro'],
             'fecha_creacion': ot_data['fecha'],
@@ -119,7 +136,7 @@ def insert_work_order(ot_data: dict):
             'sena': ot_data['sena'],
             'forma_pago': ot_data['forma_pago'],
             'solicita_envio': ot_data['envio_status'],
-            'status': ot_data['status']
+            'status': status_norm
         }
         # Añadir descripción si viene (campo nuevo en esquema)
         if 'descripcion' in ot_data:
@@ -218,6 +235,20 @@ def get_all_work_orders():
             return True, []
     except Exception as e:
         print(f"Error al obtener las órdenes de trabajo: {e}")
+        return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
+
+
+def get_work_orders_by_vendedor(vendedor: str):
+    """Obtiene órdenes de trabajo filtradas por el campo 'vendedor'."""
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+    try:
+        response = supabase.table('ordenes_trabajo').select('*').eq('vendedor', vendedor).order('fecha_creacion', desc=True).execute()
+        if response.data:
+            return True, response.data
+        return True, []
+    except Exception as e:
+        print(f"Error al obtener las órdenes de trabajo por vendedor: {e}")
         return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
 
 

@@ -1,15 +1,31 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
 from datetime import datetime
-# Intentar usar el servicio de BD si está disponible
+# Usar servicio de BD (obligatorio)
 try:
-    from services.supabase_service import get_all_work_orders
+    from services.supabase_service import get_work_orders_by_vendedor
 except Exception:
-    get_all_work_orders = None
+    get_work_orders_by_vendedor = None
 
 # --- CONFIGURACIÓN DE ESTILO ---
 ctk.set_appearance_mode("light") 
 ctk.set_default_color_theme("blue")
+
+
+def normalize_estado(s):
+    # Canonical states order: Pendiente, Aprobado, Entregado, Finalizado
+    if not s:
+        return 'Pendiente'
+    s2 = str(s).strip().lower()
+    if s2 in ('pendiente', 'pending'):
+        return 'Pendiente'
+    if s2 in ('aprobado', 'aprovado', 'aprobed'):
+        return 'Aprobado'
+    if 'entreg' in s2:
+        return 'Entregado'
+    if s2 in ('finalizado', 'finalizado/a', 'final'):
+        return 'Finalizado'
+    return 'Pendiente'
 
 class VentanaAbono(ctk.CTkToplevel):
     def __init__(self, parent, callback):
@@ -39,23 +55,18 @@ class OTsFrame(ctk.CTkFrame):
     """Frame embebible para mostrar la planilla y detalle de OTs.
     También se proporciona una pequeña app runner al final para pruebas standalone.
     """
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, vendedor: str = None, **kwargs):
         super().__init__(parent, **kwargs)
+        self.vendedor = vendedor
 
         # Si el frame está usado standalone, parent puede ser la propia ventana.
         if isinstance(parent, ctk.CTk):
             parent.title("Plot Master App - Gestión de OTs")
             parent.geometry("1200x800")
-        # DATOS DE PRUEBA (Incluyendo campo de envío) — se reemplazan por los de la BD si están disponibles
-        self.datos_ots = [
-            {"ot": "1000", "fecha": "17/12/2025", "vendedor": "Marcos", "cliente": "Juan Pérez", "descripcion": "100 Tarjetas personales mate", "monto": 250000, "pagos": [{"m": 100000, "f": "17/12"}], "pago": "Crédito", "estado": "Aprobado", "envio": "Con Envío"},
-            {"ot": "1001", "fecha": "17/12/2025", "vendedor": "Ana", "cliente": "Súper Sol", "descripcion": "Cartel lona frontal 3x2 mts", "monto": 1200000, "pagos": [{"m": 1200000, "f": "17/12"}], "pago": "Contado", "estado": "Finalizado", "envio": "Sin Envío (Retira)"},
-            {"ot": "1002", "fecha": "17/12/2025", "vendedor": "Marcos", "cliente": "Farmacia Vida", "descripcion": "Vinilos microperforados", "monto": 800000, "pagos": [{"m": 400000, "f": "17/12"}], "pago": "Crédito", "estado": "Entregado", "envio": "Con Envío"},
-        ]
-
-        # Intentar cargar desde la base de datos real si el servicio está disponible
-        if get_all_work_orders:
-            ok, data = get_all_work_orders()
+        # Cargar desde Supabase (obligatorio). No usar datos locales.
+        self.datos_ots = []
+        if get_work_orders_by_vendedor and self.vendedor:
+            ok, data = get_work_orders_by_vendedor(self.vendedor)
             if ok and isinstance(data, list):
                 mapped = []
                 for row in data:
@@ -64,20 +75,23 @@ class OTsFrame(ctk.CTkFrame):
                         fecha = row.get('fecha_creacion')
                         fecha_str = fecha if isinstance(fecha, str) else (fecha.strftime('%d/%m/%Y') if fecha else '')
                         cliente = row.get('cliente_ci_ruc') or ''
-                        descripcion = row.get('descripcion') or row.get('descripcion', '')
+                        descripcion = row.get('descripcion') or ''
                         monto = row.get('valor_total') or 0
                         forma_pago = row.get('forma_pago') or ''
-                        estado = row.get('status') or ''
+                        estado = normalize_estado(row.get('status'))
                         envio = 'Con Envío' if row.get('solicita_envio') else 'Sin Envío (Retira)'
+                        pagos = row.get('pagos') or []
                         mapped.append({
                             'ot': str(ot_nro), 'fecha': fecha_str, 'vendedor': row.get('vendedor') or '',
                             'cliente': cliente, 'descripcion': descripcion, 'monto': float(monto) if monto is not None else 0,
-                            'pagos': [], 'pago': forma_pago, 'estado': estado, 'envio': envio
+                            'pagos': pagos, 'pago': forma_pago, 'estado': estado, 'envio': envio
                         })
                     except Exception:
                         continue
-                if mapped:
-                    self.datos_ots = mapped
+                self.datos_ots = mapped
+        else:
+            # Si no hay servicio o no se indicó vendedor, dejar la lista vacía
+            self.datos_ots = []
 
         self.ot_seleccionada = None
 
@@ -98,10 +112,11 @@ class OTsFrame(ctk.CTkFrame):
 
         ctk.CTkLabel(header, text="Órdenes de Trabajo", font=("Arial", 20, "bold"), text_color="#2C3E50").pack(side="left")
         
-        # FILTRO DE ESTADO (Mantenido)
+        # FILTRO DE ESTADO (usar lista canónica)
         self.filtro_var = ctk.StringVar(value="Todos")
-        self.combo_filtro = ctk.CTkComboBox(header, values=["Todos", "Aprobado", "Entregado", "Finalizado"],
-                            variable=self.filtro_var, command=self.actualizar_tabla, width=140)
+        estados_permitidos = ["Pendiente", "Aprobado", "Entregado", "Finalizado"]
+        self.combo_filtro = ctk.CTkComboBox(header, values=["Todos"] + estados_permitidos,
+                variable=self.filtro_var, command=self.actualizar_tabla, width=220)
         self.combo_filtro.pack(side="left", padx=20)
 
         self.entry_busqueda = ctk.CTkEntry(header, placeholder_text="🔍 Buscar...", width=300)
@@ -118,23 +133,27 @@ class OTsFrame(ctk.CTkFrame):
         self.scroll_v_tabla = ctk.CTkScrollbar(cont_tabla_v, orientation="vertical", command=self.tabla.yview)
         self.tabla.configure(yscrollcommand=self.scroll_v_tabla.set)
 
-        self.scroll_h_tabla = ctk.CTkScrollbar(self.frame_izq, orientation="horizontal", command=self.tabla.xview)
-        self.tabla.configure(xscrollcommand=self.scroll_h_tabla.set)
+        # No usar scroll horizontal: la tabla debe ajustar columnas
 
-        self.tabla.tag_configure("aprobado", background="#FFF7E6")
-        self.tabla.tag_configure("entregado", background="#FFFEE6")
-        self.tabla.tag_configure("finalizado", background="#E8F8F0")
+        # Tags para estados normalizados
+        self.tabla.tag_configure("aprobado", background="#E8F8E0")
+        self.tabla.tag_configure("entregado", background="#E8F4FF")
+        self.tabla.tag_configure("finalizado", background="#E8F0E8")
+        self.tabla.tag_configure("pendiente", background="#FFFFFF")
 
-        anchos = {"ot": 60, "fecha": 90, "cliente": 180, "descripcion": 450, "monto": 110, "abonado": 110, "pago": 100, "estado": 100}
+        # Column widths and stretch configuration to avoid horizontal scroll
+        anchos = {"ot": 70, "fecha": 90, "cliente": 220, "descripcion": 380, "monto": 110, "abonado": 110, "pago": 100, "estado": 120}
         for col in columnas:
-            # Capitalizar nombre de columna para presentación
             h = col.upper() if col not in ("ot",) else "NRO"
             self.tabla.heading(col, text=h)
-            self.tabla.column(col, width=anchos[col], anchor="center", stretch=False)
+            # Make descripcion and cliente stretchable; others fixed
+            if col in ("descripcion", "cliente"):
+                self.tabla.column(col, width=anchos[col], anchor="w", stretch=True)
+            else:
+                self.tabla.column(col, width=anchos[col], anchor="center", stretch=False)
 
         self.tabla.pack(side="left", expand=True, fill="both")
         self.scroll_v_tabla.pack(side="right", fill="y")
-        self.scroll_h_tabla.pack(side="bottom", fill="x", padx=15, pady=(0, 15))
 
         self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_fila)
         self.actualizar_tabla()
@@ -151,9 +170,9 @@ class OTsFrame(ctk.CTkFrame):
         # Cabecera del detalle (OT Nro + Estado similar al diseño)
         cab = ctk.CTkFrame(self.frame_det, fg_color="#F6F8FA")
         cab.pack(fill="x", padx=10, pady=(6, 10))
-        self.lbl_ot_nro = ctk.CTkLabel(cab, text="---", font=("Arial", 14, "bold"))
+        self.lbl_ot_nro = ctk.CTkLabel(cab, text="---", font=("Segoe UI", 14, "bold"))
         self.lbl_ot_nro.pack(side="left", padx=6, pady=6)
-        self.lbl_estado_chip = ctk.CTkLabel(cab, text="---", font=("Arial", 11, "bold"), text_color="#FFFFFF", fg_color="#7F8C8D", width=120)
+        self.lbl_estado_chip = ctk.CTkLabel(cab, text="---", font=("Segoe UI", 11, "bold"), text_color="#FFFFFF", fg_color="#7F8C8D", width=120)
         self.lbl_estado_chip.pack(side="right", padx=6, pady=6)
 
         self.lbl_vendedor = self.crear_dato("Vendedor:")
@@ -169,8 +188,8 @@ class OTsFrame(ctk.CTkFrame):
 
         f_desc = ctk.CTkFrame(self.info_container, fg_color="transparent")
         f_desc.pack(fill="x", pady=5)
-        ctk.CTkLabel(f_desc, text="Descripción:", font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
-        self.lbl_desc = ctk.CTkLabel(f_desc, text="---", font=("Arial", 11), wraplength=180, justify="left")
+        ctk.CTkLabel(f_desc, text="Descripción:", font=("Segoe UI", 11, "bold"), width=90, anchor="w").pack(side="left")
+        self.lbl_desc = ctk.CTkLabel(f_desc, text="---", font=("Segoe UI", 11), wraplength=300, justify="left")
         self.lbl_desc.pack(side="left")
 
         self.lbl_pago = self.crear_dato("Forma Pago:")
@@ -195,22 +214,23 @@ class OTsFrame(ctk.CTkFrame):
         self.btn_entregar = ctk.CTkButton(self.frame_det, text="MARCAR ENTREGADO", height=40, command=lambda: self.cambiar_estado("Entregado"))
         self.btn_entregar.pack(pady=8, fill="x", padx=10)
 
+        # Finalizar -> marcar como 'Finalizado'
         self.btn_finalizar = ctk.CTkButton(self.frame_det, text="FINALIZAR PEDIDO", height=40, command=lambda: self.cambiar_estado("Finalizado"))
         self.btn_finalizar.pack(pady=(0,12), fill="x", padx=10)
 
     def crear_dato(self, titulo):
         f = ctk.CTkFrame(self.info_container, fg_color="transparent")
-        f.pack(fill="x", pady=2)
-        ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
-        l = ctk.CTkLabel(f, text="---", font=("Arial", 11))
-        l.pack(side="left")
+        f.pack(fill="x", pady=4, padx=6)
+        ctk.CTkLabel(f, text=titulo, font=("Segoe UI", 11, "bold"), width=110, anchor="w").pack(side="left")
+        l = ctk.CTkLabel(f, text="---", font=("Segoe UI", 11), wraplength=260, anchor="w")
+        l.pack(side="left", padx=(6,0))
         return l
 
     def crear_total(self, titulo, color=None):
         f = ctk.CTkFrame(self.frame_det, fg_color="transparent")
-        f.pack(fill="x", padx=15, pady=2)
-        ctk.CTkLabel(f, text=titulo, font=("Arial", 12, "bold")).pack(side="left")
-        l = ctk.CTkLabel(f, text="0 Gs.", text_color=color, font=("Arial", 14, "bold"))
+        f.pack(fill="x", padx=15, pady=4)
+        ctk.CTkLabel(f, text=titulo, font=("Segoe UI", 12, "bold")).pack(side="left")
+        l = ctk.CTkLabel(f, text="0 Gs.", text_color=color, font=("Segoe UI", 14, "bold"))
         l.pack(side="right")
         return l
 
@@ -230,13 +250,16 @@ class OTsFrame(ctk.CTkFrame):
             cliente_text = (d.get("cliente") or "").lower()
             descripcion_text = (d.get("descripcion") or "").lower()
             ot_text = str(d.get("ot") or "")
-            estado_text = (d.get("estado") or "").lower()
+            # Normalizar estado para comparaciones
+            estado_text = (d.get("estado") or "")
+            estado_norm = normalize_estado(estado_text)
 
-            if (filtro == "Todos" or d.get("estado") == filtro) and \
+            if (filtro == "Todos" or estado_norm == filtro) and \
                (busq in cliente_text or busq in ot_text or busq in descripcion_text):
                 abono = sum(p.get('m', 0) for p in d.get('pagos', []))
-                tag = estado_text
-                self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("cliente"), d.get("descripcion"), f"{d.get('monto', 0):,} Gs.", f"{abono:,} Gs.", d.get("pago"), d.get("estado")), tags=(tag,))
+                tag = estado_norm.lower().replace(' ', '_')
+                # Insert normalized estado text in last column
+                self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("cliente"), d.get("descripcion"), f"{d.get('monto', 0):,} Gs.", f"{abono:,} Gs.", d.get("pago"), estado_norm), tags=(tag,))
 
         # Try to restore selection and detail view
         if sel_ot is not None:
@@ -268,8 +291,17 @@ class OTsFrame(ctk.CTkFrame):
         self.lbl_pago.configure(text=d['pago'])
 
         # Estado (chip)
-        self.lbl_estado_chip.configure(text=d.get('estado', '---'))
-        estado_color = "#27AE60" if d.get('estado') == 'Finalizado' else ("#F39C12" if d.get('estado') == 'Aprobado' else "#2980B9")
+        estado_actual = normalize_estado(d.get('estado')) if isinstance(d.get('estado'), str) else 'Pendiente'
+        self.lbl_estado_chip.configure(text=estado_actual)
+        # Colores por estado: Pendiente=gris, Aprobado=azul, Entregado=verde, Finalizado=verde oscuro
+        if estado_actual == 'Aprobado':
+            estado_color = "#2980B9"
+        elif estado_actual == 'Entregado':
+            estado_color = "#27AE60"
+        elif estado_actual == 'Finalizado':
+            estado_color = "#145A32"
+        else:
+            estado_color = "#7F8C8D"
         self.lbl_estado_chip.configure(fg_color=estado_color)
 
         # --- Actualizar Campo de Envío ---
@@ -291,10 +323,11 @@ class OTsFrame(ctk.CTkFrame):
         self.lbl_abonado.configure(text=f"{abono:,} Gs.")
         self.lbl_saldo.configure(text=f"{d['monto'] - abono:,} Gs.")
 
-        self.btn_entregar.configure(state="normal" if d['estado'] == "Aprobado" else "disabled", 
-                                    fg_color="#F39C12" if d['estado'] == "Aprobado" else "gray")
-        self.btn_finalizar.configure(state="normal" if d['estado'] == "Entregado" else "disabled", 
-                                     fg_color="#27AE60" if d['estado'] == "Entregado" else "gray")
+        # Botones: entregar cuando está Aprobado; finalizar cuando está Entregado
+        self.btn_entregar.configure(state="normal" if estado_actual == "Aprobado" else "disabled",
+                fg_color="#F39C12" if estado_actual == "Aprobado" else "gray")
+        self.btn_finalizar.configure(state="normal" if estado_actual == "Entregado" else "disabled",
+                 fg_color="#27AE60" if estado_actual == "Entregado" else "gray")
 
     def abrir_ventana_pago(self):
         if self.ot_seleccionada: VentanaAbono(self, self.registrar_abono_final)
@@ -305,7 +338,8 @@ class OTsFrame(ctk.CTkFrame):
 
     def cambiar_estado(self, nuevo_estado):
         if self.ot_seleccionada:
-            self.ot_seleccionada['estado'] = nuevo_estado
+            # Normalizar al conjunto permitido
+            self.ot_seleccionada['estado'] = normalize_estado(nuevo_estado)
             self.actualizar_tabla(); self.refrescar_detalle()
 
 # Backwards compatibility: some modules import `ModuloOTs`

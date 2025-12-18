@@ -148,16 +148,17 @@ class MainAppFrame(ctk.CTkFrame):
         # ------------------------------------------------------------------
         # 1. Creación del Header
         # ------------------------------------------------------------------
-        self.header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#263238", height=50)
+        # Header con color suave inspirado en la referencia
+        self.header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#3b2b5b", height=50)
         self.header_frame.grid(row=0, column=0, columnspan=2, sticky="ew")
         
         self.header_frame.grid_columnconfigure(0, weight=1)
         self.header_frame.grid_columnconfigure(1, weight=1)
 
         self.title_label = ctk.CTkLabel(self.header_frame,
-                        text="Plot Master",
-                        font=ctk.CTkFont(size=18, weight="bold"),
-                        text_color="white")
+                text="Ordenes de Trabajo",
+                font=ctk.CTkFont(size=18, weight="bold"),
+                text_color="white")
         self.title_label.grid(row=0, column=0, padx=20, pady=(16, 8), sticky="w")
 
         self.user_label = ctk.CTkLabel(self.header_frame,
@@ -171,7 +172,8 @@ class MainAppFrame(ctk.CTkFrame):
         # 2. Creación del Marco de Navegación (Sidebar)
         # ------------------------------------------------------------------
         
-        self.navigation_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#263238")
+        # Sidebar visual inspirado en la referencia HTML
+        self.navigation_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="#2b2540")
         self.navigation_frame.grid(row=1, column=0, sticky="ns")
         self.navigation_frame.grid_rowconfigure(12, weight=1)
 
@@ -179,33 +181,27 @@ class MainAppFrame(ctk.CTkFrame):
         # 3. Elementos Fijos del Sidebar
         # ------------------------------------------------------------------
 
-        # MENÚ
-        self.menu_separator = ctk.CTkLabel(self.navigation_frame,
-                           text="MENÚ",
-                           font=ctk.CTkFont(size=12, weight="bold"),
-                           text_color="#B0BEC5")
-        self.menu_separator.grid(row=2, column=0, padx=16, pady=(12, 6), sticky="w")
-
-        # ------------------------------------------------------------------
-        # 4. Botones de Navegación (Pestañas)
-        # ------------------------------------------------------------------
-
+        # Helper para crear botones del nav (definida antes de su uso)
         def create_nav_button(row, text, command_name):
             return ctk.CTkButton(self.navigation_frame,
-                                 corner_radius=0, height=40, border_spacing=10,
+                                 corner_radius=6, height=44,
                                  text=text, fg_color="transparent",
-                                 text_color=("#ECEFF1", "#ECEFF1"), hover_color=("#344A4E", "#344A4E"),
+                                 text_color=("#F5F3FB", "#F5F3FB"), hover_color=("#3f2f66", "#3f2f66"),
                                  anchor="w",
                                  command=lambda: self.select_frame_by_name(command_name))
 
-        self.inicio_button = create_nav_button(3, "🏠  Inicio", "inicio")
-        self.inicio_button.grid(row=3, column=0, sticky="ew", padx=6)
+        # Botón Inicio (mantener funcionalidad de la app)
+        self.inicio_button = create_nav_button(1, "🏠  Inicio", "inicio")
+        self.inicio_button.grid(row=1, column=0, sticky="ew", padx=10, pady=(8,4))
 
-        self.ordenes_button = create_nav_button(4, "📋  Órdenes de trabajo", "ordenes")
-        self.ordenes_button.grid(row=4, column=0, sticky="ew", padx=6)
-        
-        self.ordenes_list_button = create_nav_button(5, "📈 Planilla de OTs", "ordenes_list")
-        self.ordenes_list_button.grid(row=5, column=0, sticky="ew", padx=6)
+        # SECCIÓN: OTS (solo las dos entradas requeridas)
+        ctk.CTkLabel(self.navigation_frame, text="OTS", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=2, column=0, padx=16, pady=(12,8), sticky="w")
+
+        self.ordenes_button = create_nav_button(3, "📋  Generar OT", "ordenes")
+        self.ordenes_button.grid(row=3, column=0, sticky="ew", padx=10, pady=(6,4))
+
+        self.ordenes_list_button = create_nav_button(4, "📈  Planilla OT", "ordenes_list")
+        self.ordenes_list_button.grid(row=4, column=0, sticky="ew", padx=10)
 
         # ------------------------------------------------------------------
         # 5. Marcos de Contenido (Módulos) - ¡Conexión!
@@ -255,7 +251,7 @@ class MainAppFrame(ctk.CTkFrame):
         self._clear_central()
         from ..modules.work_orders_list.ot_registration_list import ModuloOTs
         self.central_container.grid_columnconfigure(0, weight=1)
-        ordenes_list_frame = ModuloOTs(self.central_container)
+        ordenes_list_frame = ModuloOTs(self.central_container, vendedor=self.user_name)
         ordenes_list_frame.grid(row=0, column=0, sticky="nsew")
 
     def select_frame_by_name(self, name):
