@@ -123,17 +123,27 @@ class OTsFrame(ctk.CTkFrame):
         self.entry_busqueda.pack(side="right")
         self.entry_busqueda.bind("<KeyRelease>", self.actualizar_tabla)
 
-        # TABLA CON BARRA VERTICAL Y HORIZONTAL (Barras 1 y 2)
+        # TABLA: contenedor con scroll vertical y horizontal SOLO para la tabla
         cont_tabla_v = ctk.CTkFrame(self.frame_izq, fg_color="transparent")
         cont_tabla_v.pack(expand=True, fill="both", padx=15, pady=(0, 5))
 
         columnas = ("ot", "fecha", "cliente", "descripcion", "monto", "abonado", "pago", "estado")
-        self.tabla = ttk.Treeview(cont_tabla_v, columns=columnas, show="headings")
+        # Crear la Treeview con `tabla_container` como padre para que `grid` funcione correctamente
+        self.tabla = None
 
-        self.scroll_v_tabla = ctk.CTkScrollbar(cont_tabla_v, orientation="vertical", command=self.tabla.yview)
-        self.tabla.configure(yscrollcommand=self.scroll_v_tabla.set)
+        # Contenedor interno que utiliza grid para colocar la tabla y las barras correctamente
+        tabla_container = ctk.CTkFrame(cont_tabla_v, fg_color="transparent")
+        tabla_container.pack(expand=True, fill="both")
+        tabla_container.grid_rowconfigure(0, weight=1)
+        tabla_container.grid_columnconfigure(0, weight=1)
 
-        # No usar scroll horizontal: la tabla debe ajustar columnas
+        # Crear la Treeview con `tabla_container` como padre para que grid coloque bien la tabla
+        self.tabla = ttk.Treeview(tabla_container, columns=columnas, show="headings")
+
+        # Scrolls dedicados
+        self.scroll_v_tabla = ctk.CTkScrollbar(tabla_container, orientation="vertical", command=self.tabla.yview)
+        self.scroll_h_tabla = ctk.CTkScrollbar(tabla_container, orientation="horizontal", command=self.tabla.xview)
+        self.tabla.configure(yscrollcommand=self.scroll_v_tabla.set, xscrollcommand=self.scroll_h_tabla.set)
 
         # Tags para estados normalizados
         self.tabla.tag_configure("aprobado", background="#E8F8E0")
@@ -141,19 +151,22 @@ class OTsFrame(ctk.CTkFrame):
         self.tabla.tag_configure("finalizado", background="#E8F0E8")
         self.tabla.tag_configure("pendiente", background="#FFFFFF")
 
-        # Column widths and stretch configuration to avoid horizontal scroll
-        anchos = {"ot": 70, "fecha": 90, "cliente": 220, "descripcion": 380, "monto": 110, "abonado": 110, "pago": 100, "estado": 120}
+        # Column widths: permitir que el ancho total exceda el contenedor para habilitar scroll horizontal
+        anchos = {"ot": 70, "fecha": 90, "cliente": 260, "descripcion": 480, "monto": 110, "abonado": 110, "pago": 100, "estado": 120}
         for col in columnas:
             h = col.upper() if col not in ("ot",) else "NRO"
-            self.tabla.heading(col, text=h)
-            # Make descripcion and cliente stretchable; others fixed
-            if col in ("descripcion", "cliente"):
-                self.tabla.column(col, width=anchos[col], anchor="w", stretch=True)
+            # Centrar encabezados
+            self.tabla.heading(col, text=h, anchor="center")
+            # Centrar contenido de 'cliente' y 'descripcion' pero permitir stretch (no fijar)
+            if col in ("cliente", "descripcion"):
+                self.tabla.column(col, width=anchos[col], anchor="center", stretch=True)
             else:
                 self.tabla.column(col, width=anchos[col], anchor="center", stretch=False)
 
-        self.tabla.pack(side="left", expand=True, fill="both")
-        self.scroll_v_tabla.pack(side="right", fill="y")
+        # Colocar con grid para que las barras queden vinculadas correctamente a la tabla
+        self.tabla.grid(row=0, column=0, sticky="nsew")
+        self.scroll_v_tabla.grid(row=0, column=1, sticky="ns")
+        self.scroll_h_tabla.grid(row=1, column=0, sticky="ew")
 
         self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_fila)
         self.actualizar_tabla()
