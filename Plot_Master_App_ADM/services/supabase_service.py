@@ -257,6 +257,17 @@ def update_client(ci_ruc, updates: dict):
         return False, f"Error al actualizar cliente: {e}"
 
 
+def delete_client(ci_ruc: str):
+    """Elimina un cliente por su CI/RUC."""
+    if not supabase: return False, "No hay conexión con la base de datos."
+    try:
+        response = supabase.table('clientes').delete().eq('ci_ruc', ci_ruc).execute()
+        return True, "Cliente eliminado"
+    except Exception as e:
+        print(f"Error al eliminar cliente: {e}")
+        return False, f"Error al eliminar cliente: {e}"
+
+
 def get_work_orders_by_client(ci_ruc: str):
     """Devuelve las órdenes de trabajo asociadas al CI/RUC del cliente."""
     if not supabase:

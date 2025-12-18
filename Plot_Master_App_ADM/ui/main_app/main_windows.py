@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from ..modules.work_orders_list.ot_registration_list_adm import ModuloOTs
 from ..modules.client.client_registration import ModuloClientes
+from ..modules.users.users import ModuloAccesos
 
 # ==========================================================================
 # CLASE 1: Módulo de Órdenes de Trabajo (Contiene las Subpestañas)
@@ -190,6 +191,11 @@ class MainAppFrame(ctk.CTkFrame):
         self.reportes_button = create_nav_button(7, "📊  Reportes", "reportes")
         self.reportes_button.grid(row=7, column=0, sticky="ew", padx=10)
 
+        # SECCIÓN: Administrador de accesos
+        ctk.CTkLabel(self.navigation_frame, text="ADMIN. ACCESOS", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=8, column=0, padx=16, pady=(18,8), sticky="w")
+        self.usuarios_button = create_nav_button(9, "🔐  Usuarios", "usuarios")
+        self.usuarios_button.grid(row=9, column=0, sticky="ew", padx=10, pady=(6,4))
+
         # ------------------------------------------------------------------
         # 5. Marcos de Contenido (Módulos) - ¡Conexión!
         # ------------------------------------------------------------------
@@ -254,9 +260,13 @@ class MainAppFrame(ctk.CTkFrame):
 
     def select_frame_by_name(self, name):
         # Lógica de navegación principal (sidebar)
-        buttons = [self.inicio_button, self.ordenes_list_button, self.clientes_button, self.reportes_button]
+        buttons = [self.inicio_button, self.ordenes_list_button, self.clientes_button, self.reportes_button, getattr(self, 'usuarios_button', None)]
         for button in buttons:
-            button.configure(fg_color="transparent")
+            try:
+                if button:
+                    button.configure(fg_color="transparent")
+            except Exception:
+                pass
 
         active_color = ("#69B5F9", "#0086E2")
 
@@ -269,9 +279,21 @@ class MainAppFrame(ctk.CTkFrame):
         elif name == "clientes":
             self.clientes_button.configure(fg_color=active_color)
             self._show_clientes()
+        elif name == "usuarios":
+            try:
+                self.usuarios_button.configure(fg_color=active_color)
+            except Exception:
+                pass
+            self._show_usuarios()
         elif name == "reportes":
             self.reportes_button.configure(fg_color=active_color)
             self._show_reportes()
+
+    def _show_usuarios(self):
+        self._clear_central()
+        self.central_container.grid_columnconfigure(0, weight=1)
+        usuarios_frame = ModuloAccesos(self.central_container)
+        usuarios_frame.grid(row=0, column=0, sticky="nsew")
 
 
 # --------------------------------------------------------------------------
