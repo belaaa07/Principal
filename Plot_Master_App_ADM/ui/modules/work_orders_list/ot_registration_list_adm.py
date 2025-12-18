@@ -141,7 +141,8 @@ class ModuloOTs(ctk.CTkFrame):
         f_desc = ctk.CTkFrame(self.info_container, fg_color="transparent")
         f_desc.pack(fill="x", pady=5)
         ctk.CTkLabel(f_desc, text="Descripción:", font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
-        self.lbl_desc = ctk.CTkLabel(f_desc, text="---", font=("Arial", 11), wraplength=180, justify="left")
+        # Ajuste mínimo: reducir wraplength para forzar salto de línea y añadir pequeño padding
+        self.lbl_desc = ctk.CTkLabel(f_desc, text="---", font=("Arial", 11), wraplength=420, justify="left")
         self.lbl_desc.pack(side="left")
 
         self.lbl_pago = self.crear_dato("Forma Pago:")

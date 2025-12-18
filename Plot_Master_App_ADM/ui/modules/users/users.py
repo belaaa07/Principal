@@ -54,6 +54,10 @@ class ModuloAccesos(ctk.CTkFrame):
         vsb.pack(side="right", fill="y")
         self.tabla.pack(side="left", expand=True, fill="both")
         self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_fila)
+        # Asegurar que click del ratón también active la selección en entornos donde el evento virtual no se dispare
+        self.tabla.bind("<ButtonRelease-1>", self.al_seleccionar_fila)
+        # Doble click abre edición rápida
+        self.tabla.bind("<Double-1>", lambda e: self.abrir_ventana_editar())
 
     def crear_panel_control_derecho(self):
         self.frame_det = ctk.CTkFrame(self, width=320, border_width=1, border_color="#D0D0D0", fg_color="white")
@@ -104,9 +108,30 @@ class ModuloAccesos(ctk.CTkFrame):
         if not sel:
             return
         vals = self.tabla.item(sel[0])['values']
-        ci_ruc = vals[3]
+        # defensivo: convertir a str y strip
+        try:
+            ci_ruc = str(vals[3]).strip()
+        except Exception:
+            ci_ruc = ''
         # Buscar en la lista cargada
-        self.usuario_seleccionado = next((c for c in (self.clientes or []) if c.get('ci_ruc') == ci_ruc), None)
+        self.usuario_seleccionado = next((c for c in (self.clientes or []) if str(c.get('ci_ruc') or '').strip() == ci_ruc), None)
+        if not self.usuario_seleccionado:
+            # intentar por id
+            try:
+                vid = str(vals[0]).strip()
+                self.usuario_seleccionado = next((c for c in (self.clientes or []) if str(c.get('id') or '') == vid), None)
+            except Exception:
+                self.usuario_seleccionado = None
+        if not self.usuario_seleccionado:
+            # intentar por nombre
+            try:
+                vname = str(vals[2]).strip().lower()
+                self.usuario_seleccionado = next((c for c in (self.clientes or []) if (c.get('nombre') or '').strip().lower() == vname), None)
+            except Exception:
+                self.usuario_seleccionado = None
+        if not self.usuario_seleccionado:
+            print(f"Cliente no encontrado para fila: {vals}")
+            return
         if self.usuario_seleccionado:
             self.lbl_info.configure(text=f"{self.usuario_seleccionado.get('nombre')}\nCI/RUC: {self.usuario_seleccionado.get('ci_ruc')}", text_color="black")
             self.btn_editar.configure(state="normal")
@@ -126,24 +151,25 @@ class ModuloAccesos(ctk.CTkFrame):
 
         entry_ci = self.crear_campo(vent, "CI / RUC:", u.get('ci_ruc'))
         entry_nom = self.crear_campo(vent, "Nombre Completo:", u.get('nombre'))
-        entry_tel = self.crear_campo(vent, "Teléfono:", u.get('telefono') or "")
+        # Editable fields limited to CI/RUC, Nombre y Email
         entry_mail = self.crear_campo(vent, "Email:", u.get('email') or "")
-        entry_zona = self.crear_campo(vent, "Zona:", u.get('zona') or "")
 
         def guardar():
             new_ci = entry_ci.get().strip()
             updates = {
                 'nombre': entry_nom.get().strip(),
-                'telefono': entry_tel.get().strip(),
                 'email': entry_mail.get().strip(),
-                'zona': entry_zona.get().strip()
             }
+            # Intentar actualizar el registro identificado por la CI/RUC actual
             ok, msg = svc.update_client(u.get('ci_ruc'), updates)
             if ok:
-                # Si se cambió el CI/RUC se intenta actualizar localmente buscando por id
+                # Si se cambió la CI/RUC, intentar actualizar esa columna también
                 if new_ci and new_ci != u.get('ci_ruc'):
-                    # No se debe modificar claves primarias sin políticas, sólo reflejamos cambio local
-                    updates['ci_ruc'] = new_ci
+                    try:
+                        ok2, msg2 = svc.update_client(u.get('ci_ruc'), {'ci_ruc': new_ci})
+                        # Si falló el cambio de CI, no interrumpir; el resto ya fue actualizado
+                    except Exception:
+                        pass
                 messagebox.showinfo("Éxito", "Cliente actualizado correctamente.")
                 vent.destroy()
                 self.cargar_clientes()

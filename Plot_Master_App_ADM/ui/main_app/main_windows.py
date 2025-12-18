@@ -140,9 +140,9 @@ class MainAppFrame(ctk.CTkFrame):
         self.header_frame.grid_columnconfigure(1, weight=1)
 
         self.title_label = ctk.CTkLabel(self.header_frame,
-                text="Ordenes de Trabajo",
-                font=ctk.CTkFont(size=18, weight="bold"),
-                text_color="white")
+            text="Ordenes de Trabajo",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="white")
         self.title_label.grid(row=0, column=0, padx=20, pady=(16, 8), sticky="w")
 
         self.user_label = ctk.CTkLabel(self.header_frame,
@@ -174,9 +174,7 @@ class MainAppFrame(ctk.CTkFrame):
                                  anchor="w",
                                  command=lambda: self.select_frame_by_name(command_name))
 
-        # Botón Inicio (mantener funcionalidad de la app)
-        self.inicio_button = create_nav_button(1, "🏠  Inicio", "inicio")
-        self.inicio_button.grid(row=1, column=0, sticky="ew", padx=10, pady=(8,4))
+        # Nota: El módulo 'Inicio' fue eliminado; iniciar en OTs.
 
         # SECCIÓN: OTS (solo lista admin)
         ctk.CTkLabel(self.navigation_frame, text="OTS", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=2, column=0, padx=16, pady=(12,8), sticky="w")
@@ -184,12 +182,11 @@ class MainAppFrame(ctk.CTkFrame):
         self.ordenes_list_button = create_nav_button(3, "📈  Planilla OT (Admin)", "ordenes_list")
         self.ordenes_list_button.grid(row=3, column=0, sticky="ew", padx=10)
 
-        # SECCIÓN: Catálogo (Clientes / Reportes)
+        # SECCIÓN: Catálogo (Clientes)
         ctk.CTkLabel(self.navigation_frame, text="CATÁLOGO", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=5, column=0, padx=16, pady=(18,8), sticky="w")
         self.clientes_button = create_nav_button(6, "👥  Clientes", "clientes")
         self.clientes_button.grid(row=6, column=0, sticky="ew", padx=10, pady=(6,4))
-        self.reportes_button = create_nav_button(7, "📊  Reportes", "reportes")
-        self.reportes_button.grid(row=7, column=0, sticky="ew", padx=10)
+        # (Reportes eliminado)
 
         # SECCIÓN: Administrador de accesos
         ctk.CTkLabel(self.navigation_frame, text="ADMIN. ACCESOS", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=8, column=0, padx=16, pady=(18,8), sticky="w")
@@ -214,8 +211,8 @@ class MainAppFrame(ctk.CTkFrame):
         # ------------------------------------------------------------------
         # 6. Inicialización y Lógica de Pestañas
         # ------------------------------------------------------------------
-        # Inicia mostrando el módulo de Inicio
-        self.select_frame_by_name("inicio")
+        # Inicia mostrando la lista de OTs (administrador)
+        self.select_frame_by_name("ordenes_list")
 
     def _create_module_frame(self, text):
         # Función para crear módulos genéricos
@@ -230,11 +227,6 @@ class MainAppFrame(ctk.CTkFrame):
     def _clear_central(self):
         for child in self.central_container.winfo_children():
             child.destroy()
-
-    def _show_inicio(self):
-        self._clear_central()
-        frame = self._create_module_frame("Módulo de Inicio")
-        frame.grid(row=0, column=0, sticky="nsew")
 
     def _show_ordenes(self):
         self._clear_central()
@@ -253,14 +245,11 @@ class MainAppFrame(ctk.CTkFrame):
         clientes_frame = ModuloClientes(self.central_container)
         clientes_frame.grid(row=0, column=0, sticky="nsew")
 
-    def _show_reportes(self):
-        self._clear_central()
-        frame = self._create_module_frame("Reportes (pendiente)")
-        frame.grid(row=0, column=0, sticky="nsew")
+    # Inicio y Reportes eliminados en versión administrador
 
     def select_frame_by_name(self, name):
         # Lógica de navegación principal (sidebar)
-        buttons = [self.inicio_button, self.ordenes_list_button, self.clientes_button, self.reportes_button, getattr(self, 'usuarios_button', None)]
+        buttons = [self.ordenes_list_button, self.clientes_button, getattr(self, 'usuarios_button', None)]
         for button in buttons:
             try:
                 if button:
@@ -270,10 +259,7 @@ class MainAppFrame(ctk.CTkFrame):
 
         active_color = ("#69B5F9", "#0086E2")
 
-        if name == "inicio":
-            self.inicio_button.configure(fg_color=active_color)
-            self._show_inicio()
-        elif name == "ordenes_list":
+        if name == "ordenes_list":
             self.ordenes_list_button.configure(fg_color=active_color)
             self._show_ordenes_list()
         elif name == "clientes":
@@ -281,13 +267,11 @@ class MainAppFrame(ctk.CTkFrame):
             self._show_clientes()
         elif name == "usuarios":
             try:
-                self.usuarios_button.configure(fg_color=active_color)
+                if hasattr(self, 'usuarios_button'):
+                    self.usuarios_button.configure(fg_color=active_color)
             except Exception:
                 pass
             self._show_usuarios()
-        elif name == "reportes":
-            self.reportes_button.configure(fg_color=active_color)
-            self._show_reportes()
 
     def _show_usuarios(self):
         self._clear_central()
