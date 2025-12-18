@@ -1,3 +1,11 @@
+administradores.id : bigint
+administradores.ci_ruc : text
+administradores.nombre : text
+administradores.email : text
+administradores.password_hash : text
+administradores.salt : text
+administradores.fecha_registro : timestamp with time zone
+administradores.estado : text
 clientes.id : bigint
 clientes.created_at : timestamp with time zone
 clientes.nombre : text
@@ -19,6 +27,7 @@ ordenes_trabajo.status : text
 usuarios.id : bigint
 usuarios.ci_ruc : text
 usuarios.nombre : text
+usuarios.email : text
 usuarios.password_hash : text
 usuarios.salt : text
 usuarios.fecha_registro : timestamp with time zone

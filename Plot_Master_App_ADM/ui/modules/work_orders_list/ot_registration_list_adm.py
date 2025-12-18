@@ -1,6 +1,12 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
 from datetime import datetime
+from services.supabase_service import (
+    get_all_work_orders,
+    update_work_order_status,
+    update_work_order_value,
+    delete_work_order,
+)
 
 # --- CONFIGURACIÓN DE ESTILO ---
 ctk.set_appearance_mode("light") 
@@ -30,28 +36,22 @@ class VentanaAbono(ctk.CTkToplevel):
         else:
             messagebox.showerror("Error", "Ingrese un monto válido.")
 
-class ModuloOTs(ctk.CTk):
-    def __init__(self):
-        super().__init__()
+class ModuloOTs(ctk.CTkFrame):
+    def __init__(self, parent):
+        super().__init__(parent, fg_color="transparent")
 
-        self.title("Plot Master App - Gestión de OTs")
-        self.geometry("1550x850")
-
-        # DATOS DE PRUEBA AMPLIADOS
-        self.datos_ots = [
-            {"ot": "1000", "fecha": "17/12/2025", "vendedor": "Marcos", "cliente": "Juan Pérez", "descripcion": "100 Tarjetas personales mate", "monto": 250000, "pagos": [{"m": 100000, "f": "17/12"}], "pago": "Crédito", "estado": "Pendiente", "envio": "Con Envío"},
-            {"ot": "1001", "fecha": "17/12/2025", "vendedor": "Ana", "cliente": "Súper Sol", "descripcion": "Cartel lona frontal 3x2 mts", "monto": 1200000, "pagos": [{"m": 1200000, "f": "17/12"}], "pago": "Contado", "estado": "Aprobado", "envio": "Sin Envío (Retira)"},
-            {"ot": "1002", "fecha": "18/12/2025", "vendedor": "Marcos", "cliente": "Taller X", "descripcion": "Letrero Luminoso", "monto": 500000, "pagos": [], "pago": "Crédito", "estado": "Finalizado", "envio": "Con Envío"},
-        ]
-
+        # Datos cargados desde Supabase
+        self.datos_ots = []
         self.ot_seleccionada = None
-        
-        self.grid_columnconfigure(0, weight=1) 
-        self.grid_columnconfigure(1, weight=0) 
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=0)
         self.grid_rowconfigure(0, weight=1)
 
         self.crear_planilla_izquierda()
         self.crear_detalle_derecha()
+        # Cargar datos
+        self.cargar_ots_desde_db()
 
     def crear_planilla_izquierda(self):
         self.frame_izq = ctk.CTkFrame(self, fg_color="white", corner_radius=10, border_width=1, border_color="#D0D0D0")
@@ -100,6 +100,29 @@ class ModuloOTs(ctk.CTk):
         self.scroll_h_tabla.pack(side="bottom", fill="x", padx=15, pady=(0, 15))
 
         self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_fila)
+        self.actualizar_tabla()
+
+    def cargar_ots_desde_db(self):
+        ok, data = get_all_work_orders()
+        if not ok:
+            messagebox.showwarning("Advertencia", f"No se pudo cargar OTs: {data}")
+            return
+        # Mapear a estructura interna usada por la UI
+        mapped = []
+        for r in data:
+            mapped.append({
+                'ot': str(r.get('ot_nro') or r.get('ot') or ''),
+                'fecha': (r.get('fecha_creacion') or r.get('created_at') or '').split('T')[0] if r.get('fecha_creacion') or r.get('created_at') else '',
+                'vendedor': r.get('vendedor') or '',
+                'cliente': r.get('cliente_ci_ruc') or r.get('ci_ruc') or '',
+                'descripcion': r.get('descripcion') or '',
+                'monto': int(r.get('valor_total') or 0),
+                'pagos': [],
+                'pago': r.get('forma_pago') or '',
+                'estado': r.get('status') or '',
+                'envio': 'Con Envío' if r.get('solicita_envio') else 'Sin Envío',
+            })
+        self.datos_ots = mapped
         self.actualizar_tabla()
 
     def crear_detalle_derecha(self):
@@ -182,11 +205,14 @@ class ModuloOTs(ctk.CTk):
         busq = self.entry_busqueda.get().lower()
         filtro = self.filtro_var.get()
         for d in self.datos_ots:
-            if (filtro == "Todos" or d["estado"] == filtro) and \
-               (busq in d["cliente"].lower() or busq in d["ot"] or busq in d["descripcion"].lower() or busq in d["vendedor"].lower()):
-                abono = sum(p['m'] for p in d['pagos'])
-                tag = d["estado"].lower()
-                self.tabla.insert("", "end", values=(d["ot"], d["fecha"], d["vendedor"], d["cliente"], d["descripcion"], f"{d['monto']:,} Gs.", f"{abono:,} Gs.", d["pago"], d["estado"]), tags=(tag,))
+            cliente_lower = (d.get('cliente') or '').lower()
+            descripcion_lower = (d.get('descripcion') or '').lower()
+            vendedor_lower = (d.get('vendedor') or '').lower()
+            if (filtro == "Todos" or d.get("estado") == filtro) and \
+               (busq in cliente_lower or busq in str(d.get('ot')) or busq in descripcion_lower or busq in vendedor_lower):
+                abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+                tag = (d.get("estado") or '').lower()
+                self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("vendedor"), d.get("cliente"), d.get("descripcion"), f"{d.get('monto'):,} Gs.", f"{abono:,} Gs.", d.get("pago"), d.get("estado")), tags=(tag,))
 
     def al_seleccionar_fila(self, e):
         sel = self.tabla.selection()
@@ -200,9 +226,14 @@ class ModuloOTs(ctk.CTk):
         if not self.ot_seleccionada: return
         nuevo_m = self.entry_precio_total.get()
         if nuevo_m.isdigit():
-            self.ot_seleccionada['monto'] = int(nuevo_m)
-            self.refrescar_detalle()
-            self.actualizar_tabla()
+            ot_n = self.ot_seleccionada.get('ot')
+            ok, msg = update_work_order_value(ot_n, int(nuevo_m))
+            if ok:
+                self.ot_seleccionada['monto'] = int(nuevo_m)
+                self.refrescar_detalle()
+                self.actualizar_tabla()
+            else:
+                messagebox.showerror("Error", f"No se pudo actualizar valor: {msg}")
         else:
             messagebox.showerror("Error", "Monto inválido")
 
@@ -255,20 +286,27 @@ class ModuloOTs(ctk.CTk):
 
     def cambiar_estado(self, nuevo_estado):
         if self.ot_seleccionada:
-            self.ot_seleccionada['estado'] = nuevo_estado
-            self.actualizar_tabla()
-            self.refrescar_detalle()
+            ot_n = self.ot_seleccionada.get('ot')
+            ok, msg = update_work_order_status(ot_n, nuevo_estado)
+            if ok:
+                self.ot_seleccionada['estado'] = nuevo_estado
+                self.actualizar_tabla()
+                self.refrescar_detalle()
+            else:
+                messagebox.showerror("Error", f"No se pudo cambiar estado: {msg}")
 
     def rechazar_ot(self):
         if self.ot_seleccionada:
             if messagebox.askyesno("Confirmar", f"¿Está seguro de rechazar la OT {self.ot_seleccionada['ot']}? Se eliminará definitivamente."):
-                self.datos_ots.remove(self.ot_seleccionada)
-                self.ot_seleccionada = None
-                self.actualizar_tabla()
-                # Limpiar textos de detalle
-                self.lbl_ot_nro.configure(text="---")
-                messagebox.showinfo("Eliminado", "La OT ha sido eliminada.")
-
-if __name__ == "__main__":
-    app = ModuloOTs()
-    app.mainloop()
+                ok, msg = delete_work_order(self.ot_seleccionada.get('ot'))
+                if ok:
+                    # Quitar localmente
+                    self.datos_ots = [d for d in self.datos_ots if d.get('ot') != self.ot_seleccionada.get('ot')]
+                    self.ot_seleccionada = None
+                    self.actualizar_tabla()
+                    # Limpiar textos de detalle
+                    self.lbl_ot_nro.configure(text="---")
+                    messagebox.showinfo("Eliminado", "La OT ha sido eliminada.")
+                else:
+                    messagebox.showerror("Error", f"No se pudo eliminar OT: {msg}")
+# No ejecutar como aplicación independiente; se integra en la ventana principal.
