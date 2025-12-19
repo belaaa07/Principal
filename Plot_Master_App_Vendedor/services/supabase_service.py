@@ -315,7 +315,7 @@ def get_all_work_orders():
         for d in data:
             cid = d.get('cliente_id')
             vid = d.get('vendedor_id')
-            d['cliente'] = clientes.get(cid, {}).get('ci_ruc') or clientes.get(cid, {}).get('nombre') or ''
+            d['cliente'] = clientes.get(cid, {}).get('nombre') or clientes.get(cid, {}).get('ci_ruc') or ''
             d['vendedor'] = usuarios.get(vid, {}).get('nombre') or usuarios.get(vid, {}).get('ci_ruc') or ''
             d['abonado_total'] = d.get('abonado_total', 0) or 0
             out.append(d)
@@ -350,7 +350,16 @@ def get_work_orders_by_vendedor(vendedor: str):
             return True, []
         response = supabase.table('ordenes_trabajo').select('*').eq('vendedor_id', vendedor_id).order('ot_nro', desc=True).execute()
         data = response.data or []
+        # Enriquecer con nombres de cliente y vendedor
+        cliente_ids = list({d.get('cliente_id') for d in data if d.get('cliente_id')})
+        vendedor_ids = list({d.get('vendedor_id') for d in data if d.get('vendedor_id')})
+        clientes = get_clients_by_ids(cliente_ids)
+        usuarios = get_users_by_ids(vendedor_ids)
         for d in data:
+            cid = d.get('cliente_id')
+            vid = d.get('vendedor_id')
+            d['cliente'] = clientes.get(cid, {}).get('nombre') or clientes.get(cid, {}).get('ci_ruc') or ''
+            d['vendedor'] = usuarios.get(vid, {}).get('nombre') or usuarios.get(vid, {}).get('ci_ruc') or ''
             d['abonado_total'] = d.get('abonado_total', 0) or 0
         return True, data
     except Exception as e:

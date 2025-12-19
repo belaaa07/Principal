@@ -280,7 +280,7 @@ def get_all_work_orders():
             cid = d.get('cliente_id')
             vid = d.get('vendedor_id')
             if cid and clientes.get(cid):
-                cliente_txt = clientes[cid].get('ci_ruc') or clientes[cid].get('nombre') or ''
+                cliente_txt = clientes[cid].get('nombre') or clientes[cid].get('ci_ruc') or ''
             if vid and usuarios.get(vid):
                 vendedor_txt = usuarios[vid].get('nombre') or usuarios[vid].get('ci_ruc') or ''
             # Exponer abonado_total para UI
@@ -301,13 +301,31 @@ def get_work_order_by_ot(ot_nro):
         row = (response.data[0] if response.data else None)
         if not row:
             return True, None
-        # Obtener historial de abonos
+        # Enriquecer con nombres de cliente y vendedor (si vienen ids)
+        try:
+            cid = row.get('cliente_id')
+            vid = row.get('vendedor_id')
+            clientes = get_clients_by_ids([cid]) if cid else {}
+            usuarios = get_users_by_ids([vid]) if vid else {}
+            cliente_txt = ''
+            vendedor_txt = ''
+            if cid and clientes.get(cid):
+                cliente_txt = clientes[cid].get('ci_ruc') or clientes[cid].get('nombre') or ''
+            if vid and usuarios.get(vid):
+                vendedor_txt = usuarios[vid].get('nombre') or usuarios[vid].get('ci_ruc') or ''
+            row['cliente'] = cliente_txt
+            row['vendedor'] = vendedor_txt
+        except Exception:
+            pass
+
+        # Obtener historial de abonos (incluir id para operaciones de borrado)
         ot_id = row.get('id')
         pagos = []
         try:
-            resp_ab = supabase.table('abonos').select('monto,fecha_abono,creado_por,observacion').eq('ot_id', ot_id).order('fecha_abono', desc=True).execute()
+            resp_ab = supabase.table('abonos').select('id,monto,fecha_abono,creado_por,observacion').eq('ot_id', ot_id).order('fecha_abono', desc=True).execute()
             for p in (resp_ab.data or []):
                 pagos.append({
+                    'id': p.get('id'),
                     'm': float(p.get('monto') or 0),
                     'f': (p.get('fecha_abono') or '').split('T')[0],
                     'creado_por': p.get('creado_por'),
@@ -322,6 +340,43 @@ def get_work_order_by_ot(ot_nro):
     except Exception as e:
         print(f"Error al obtener OT: {e}")
         return False, f"Error inesperado al obtener la OT: {e}"
+
+
+def delete_abono(abono_id: int):
+    """Elimina un abono por `id` y actualiza `ordenes_trabajo.abonado_total`.
+    Retorna (True, msg) o (False, msg).
+    """
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+    try:
+        # Obtener el abono para conocer ot_id y monto
+        sel = supabase.table('abonos').select('id,ot_id,monto').eq('id', abono_id).limit(1).execute()
+        if not getattr(sel, 'data', None):
+            return False, "Abono no encontrado."
+        ab = sel.data[0]
+        ot_id = ab.get('ot_id')
+        monto = float(ab.get('monto') or 0)
+
+        # Borrar el abono
+        resp_del = supabase.table('abonos').delete().eq('id', abono_id).execute()
+        if hasattr(resp_del, 'error') and resp_del.error:
+            return False, str(resp_del.error)
+
+        # Actualizar abonado_total en la orden restando el monto (no bajar de 0)
+        resp_ot = supabase.table('ordenes_trabajo').select('id,abonado_total').eq('id', ot_id).limit(1).execute()
+        if getattr(resp_ot, 'data', None):
+            cur = float(resp_ot.data[0].get('abonado_total') or 0)
+            nuevo = cur - monto
+            if nuevo < 0:
+                nuevo = 0
+            upd = supabase.table('ordenes_trabajo').update({'abonado_total': nuevo}).eq('id', ot_id).execute()
+            if hasattr(upd, 'error') and upd.error:
+                return False, str(upd.error)
+
+        return True, "Abono eliminado correctamente."
+    except Exception as e:
+        print(f"Error al eliminar abono {abono_id}: {e}")
+        return False, f"Error al eliminar abono: {e}"
 
 
 def update_work_order_status(ot_nro, status):

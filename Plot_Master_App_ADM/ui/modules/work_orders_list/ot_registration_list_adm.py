@@ -7,6 +7,7 @@ from services.supabase_service import (
     update_work_order_status,
     update_work_order_value,
     add_sena_to_order,
+    delete_abono,
 )
 
 # --- CONFIGURACIÓN DE ESTILO ---
@@ -285,10 +286,41 @@ class ModuloOTs(ctk.CTkFrame):
             messagebox.showerror("Error", "Monto inválido")
 
     def eliminar_pago(self, indice):
-        if messagebox.askyesno("Confirmar", "¿Desea eliminar este registro de pago?"):
-            self.ot_seleccionada['pagos'].pop(indice)
-            self.refrescar_detalle()
-            self.actualizar_tabla()
+        if not self.ot_seleccionada:
+            return
+        pagos = self.ot_seleccionada.get('pagos', [])
+        if indice < 0 or indice >= len(pagos):
+            messagebox.showerror("Error", "Pago no encontrado en la lista.")
+            return
+        pago = pagos[indice]
+        pago_id = pago.get('id')
+        if not pago_id:
+            # Fallback: si no hay id, pedir confirmación y eliminar localmente
+            if messagebox.askyesno("Confirmar", "Pago sin id. ¿Eliminar localmente?"):
+                self.ot_seleccionada['pagos'].pop(indice)
+                self.refrescar_detalle(); self.actualizar_tabla()
+            return
+        if not messagebox.askyesno("Confirmar", "¿Desea eliminar este registro de pago? Esta acción es irreversible."):
+            return
+        ok, msg = delete_abono(pago_id)
+        if ok:
+            # Recargar detalle de la OT desde la DB
+            try:
+                ok_det, detalle = get_work_order_by_ot(self.ot_seleccionada.get('ot'))
+                if ok_det and detalle:
+                    self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
+                    self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
+                else:
+                    # En caso de fallo, eliminar localmente
+                    self.ot_seleccionada['pagos'].pop(indice)
+            except Exception:
+                try:
+                    self.ot_seleccionada['pagos'].pop(indice)
+                except Exception:
+                    pass
+            self.refrescar_detalle(); self.actualizar_tabla()
+        else:
+            messagebox.showerror("Error", f"No se pudo eliminar el abono: {msg}")
 
     def refrescar_detalle(self):
         d = self.ot_seleccionada
