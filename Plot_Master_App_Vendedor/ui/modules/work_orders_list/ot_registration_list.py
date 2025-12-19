@@ -20,6 +20,8 @@ def normalize_estado(s):
     s2 = str(s).strip().lower()
     if s2 in ('pendiente', 'pending'):
         return 'Pendiente'
+    if 'rechaz' in s2:
+        return 'Rechazado'
     if s2 in ('aprobado', 'aprovado', 'aprobed'):
         return 'Aprobado'
     if 'entreg' in s2:
@@ -28,29 +30,8 @@ def normalize_estado(s):
         return 'Finalizado'
     return 'Pendiente'
 
-class VentanaAbono(ctk.CTkToplevel):
-    def __init__(self, parent, callback):
-        super().__init__(parent)
-        self.title("Registrar Abono")
-        self.geometry("300x220")
-        self.callback = callback
-        self.attributes("-topmost", True)
-        self.grab_set()
-
-        ctk.CTkLabel(self, text="Monto del Abono (Gs.):", font=("Arial", 13, "bold")).pack(pady=15)
-        self.entry_monto = ctk.CTkEntry(self, placeholder_text="Ej: 100000", width=180)
-        self.entry_monto.pack(pady=5)
-        
-        self.btn_confirmar = ctk.CTkButton(self, text="Confirmar Pago", fg_color="#27AE60", hover_color="#219150", command=self.enviar_datos)
-        self.btn_confirmar.pack(pady=25)
-
-    def enviar_datos(self):
-        monto = self.entry_monto.get()
-        if monto.isdigit():
-            self.callback(int(monto))
-            self.destroy()
-        else:
-            messagebox.showerror("Error", "Ingrese un monto válido.")
+# Los vendedores NO pueden registrar abonos ni marcar entregas/finalizar pedidos.
+# Se han eliminado los modales y botones relacionados en esta vista.
 
 class OTsFrame(ctk.CTkFrame):
     """Frame embebible para mostrar la planilla y detalle de OTs.
@@ -115,7 +96,7 @@ class OTsFrame(ctk.CTkFrame):
         
         # FILTRO DE ESTADO (usar lista canónica)
         self.filtro_var = ctk.StringVar(value="Todos")
-        estados_permitidos = ["Pendiente", "Aprobado", "Entregado", "Finalizado"]
+        estados_permitidos = ["Pendiente", "Aprobado", "Rechazado", "Entregado", "Finalizado"]
         self.combo_filtro = ctk.CTkComboBox(header, values=["Todos"] + estados_permitidos,
                 variable=self.filtro_var, command=self.actualizar_tabla, width=220)
         self.combo_filtro.pack(side="left", padx=20)
@@ -146,11 +127,17 @@ class OTsFrame(ctk.CTkFrame):
         self.scroll_h_tabla = ctk.CTkScrollbar(tabla_container, orientation="horizontal", command=self.tabla.xview)
         self.tabla.configure(yscrollcommand=self.scroll_v_tabla.set, xscrollcommand=self.scroll_h_tabla.set)
 
-        # Tags para estados normalizados
-        self.tabla.tag_configure("aprobado", background="#E8F8E0")
-        self.tabla.tag_configure("entregado", background="#E8F4FF")
-        self.tabla.tag_configure("finalizado", background="#E8F0E8")
-        self.tabla.tag_configure("pendiente", background="#FFFFFF")
+        # Tags para estados normalizados (TONOS MÁS SUAVES - vendedor)
+        # Pendiente: claro amarillo estilo Excel
+        self.tabla.tag_configure("pendiente", background="#FFF4CC")
+        # Aprobado: verde suave
+        self.tabla.tag_configure("aprobado", background="#C8E6C9")
+        # Rechazado: rojo/rosa muy suave
+        self.tabla.tag_configure("rechazado", background="#FADBD8")
+        # Entregado: verde-agua pálido
+        self.tabla.tag_configure("entregado", background="#D6F5F0")
+        # Finalizado: morado claro (vendedor)
+        self.tabla.tag_configure("finalizado", background="#EADBF7")
 
         # Column widths: permitir que el ancho total exceda el contenedor para habilitar scroll horizontal
         anchos = {"ot": 70, "fecha": 90, "cliente": 260, "descripcion": 480, "monto": 110, "abonado": 110, "pago": 100, "estado": 120}
@@ -213,8 +200,7 @@ class OTsFrame(ctk.CTkFrame):
         header_ab = ctk.CTkFrame(self.frame_det, fg_color="transparent")
         header_ab.pack(fill="x", padx=10)
         ctk.CTkLabel(header_ab, text="PAGOS REALIZADOS", font=("Arial", 12, "bold")).pack(side="left")
-        self.btn_mas_pago = ctk.CTkButton(header_ab, text="Registrar abono", width=140, height=30, command=self.abrir_ventana_pago)
-        self.btn_mas_pago.pack(side="right")
+        # Botón de registro de abonos retirado para vendedores
 
         self.container_historial = ctk.CTkFrame(self.frame_det, fg_color="#F0F0F0", corner_radius=5)
         self.container_historial.pack(fill="x", padx=10, pady=10)
@@ -224,13 +210,16 @@ class OTsFrame(ctk.CTkFrame):
         self.lbl_saldo = self.crear_total("SALDO:", color="#E74C3C")
 
         self.crear_separador()
-
-        self.btn_entregar = ctk.CTkButton(self.frame_det, text="MARCAR ENTREGADO", height=40, command=lambda: self.cambiar_estado("Entregado"))
-        self.btn_entregar.pack(pady=8, fill="x", padx=10)
-
-        # Finalizar -> marcar como 'Finalizado'
-        self.btn_finalizar = ctk.CTkButton(self.frame_det, text="FINALIZAR PEDIDO", height=40, command=lambda: self.cambiar_estado("Finalizado"))
-        self.btn_finalizar.pack(pady=(0,12), fill="x", padx=10)
+        # Los botones de 'Marcar entregado' y 'Finalizar pedido' no se muestran para vendedores
+        # Pero crear los widgets vacíos/defensivos para evitar AttributeError en refrescar_detalle
+        try:
+            self.btn_entregar = ctk.CTkButton(self.frame_det, text="Marcar Entregado", fg_color="#F39C12", state="disabled")
+        except Exception:
+            self.btn_entregar = None
+        try:
+            self.btn_finalizar = ctk.CTkButton(self.frame_det, text="Finalizar Pedido", fg_color="#27AE60", state="disabled")
+        except Exception:
+            self.btn_finalizar = None
 
     def crear_dato(self, titulo):
         f = ctk.CTkFrame(self.info_container, fg_color="transparent")
@@ -307,15 +296,19 @@ class OTsFrame(ctk.CTkFrame):
         # Estado (chip)
         estado_actual = normalize_estado(d.get('estado')) if isinstance(d.get('estado'), str) else 'Pendiente'
         self.lbl_estado_chip.configure(text=estado_actual)
-        # Colores por estado: Pendiente=gris, Aprobado=azul, Entregado=verde, Finalizado=verde oscuro
+        # Colores por estado (vendedor) - tonos más suaves
         if estado_actual == 'Aprobado':
-            estado_color = "#2980B9"
+            estado_color = "#C8E6C9"  # verde claro (vendedor)
+        elif estado_actual == 'Rechazado':
+            estado_color = "#FADBD8"  # rojo claro (vendedor)
+        elif estado_actual == 'Pendiente':
+            estado_color = "#FFF4CC"  # amarillo claro (vendedor)
         elif estado_actual == 'Entregado':
-            estado_color = "#27AE60"
+            estado_color = "#D6F5F0"  # entregado (tono suave)
         elif estado_actual == 'Finalizado':
-            estado_color = "#145A32"
+            estado_color = "#EADBF7"  # finalizado (morado claro para vendedor)
         else:
-            estado_color = "#7F8C8D"
+            estado_color = "#BDC3C7"
         self.lbl_estado_chip.configure(fg_color=estado_color)
 
         # --- Actualizar Campo de Envío ---
@@ -338,17 +331,26 @@ class OTsFrame(ctk.CTkFrame):
         self.lbl_saldo.configure(text=f"{d['monto'] - abono:,} Gs.")
 
         # Botones: entregar cuando está Aprobado; finalizar cuando está Entregado
-        self.btn_entregar.configure(state="normal" if estado_actual == "Aprobado" else "disabled",
-                fg_color="#F39C12" if estado_actual == "Aprobado" else "gray")
-        self.btn_finalizar.configure(state="normal" if estado_actual == "Entregado" else "disabled",
-                 fg_color="#27AE60" if estado_actual == "Entregado" else "gray")
+        if hasattr(self, 'btn_entregar') and self.btn_entregar:
+            try:
+                self.btn_entregar.configure(state="normal" if estado_actual == "Aprobado" else "disabled",
+                        fg_color="#F39C12" if estado_actual == "Aprobado" else "gray")
+            except Exception:
+                pass
+        if hasattr(self, 'btn_finalizar') and self.btn_finalizar:
+            try:
+                self.btn_finalizar.configure(state="normal" if estado_actual == "Entregado" else "disabled",
+                         fg_color="#27AE60" if estado_actual == "Entregado" else "gray")
+            except Exception:
+                pass
 
     def abrir_ventana_pago(self):
-        if self.ot_seleccionada: VentanaAbono(self, self.registrar_abono_final)
+        # Vendedores no pueden abrir modal de pago
+        return
 
     def registrar_abono_final(self, m):
-        self.ot_seleccionada['pagos'].append({"m": m, "f": datetime.now().strftime("%d/%m/%y")})
-        self.refrescar_detalle(); self.actualizar_tabla()
+        # No permitido para vendedor
+        return
 
     def cambiar_estado(self, nuevo_estado):
         if self.ot_seleccionada:
@@ -361,12 +363,16 @@ class OTsFrame(ctk.CTkFrame):
                 ot_key = ot_id
 
             if update_work_order_status:
-                ok, msg = update_work_order_status(ot_key, nuevo_estado)
+                try:
+                    estado_db = str(nuevo_estado).strip().title()
+                except Exception:
+                    estado_db = nuevo_estado
+                ok, msg = update_work_order_status(ot_key, estado_db)
                 if not ok:
                     messagebox.showerror("Error al actualizar", f"No se pudo actualizar el estado en la base de datos: {msg}")
                     return
             # Actualizar en memoria y UI
-            self.ot_seleccionada['estado'] = normalize_estado(nuevo_estado)
+            self.ot_seleccionada['estado'] = normalize_estado(estado_db if 'estado_db' in locals() else nuevo_estado)
             self.actualizar_tabla(); self.refrescar_detalle()
 
 # Backwards compatibility: some modules import `ModuloOTs`

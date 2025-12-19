@@ -22,8 +22,8 @@ class ModuloAccesos(ctk.CTkFrame):
         self.crear_planilla_izquierda()
         self.crear_panel_control_derecho()
 
-        # Cargar datos desde Supabase
-        self.cargar_clientes()
+        # Cargar datos desde Supabase (usuarios)
+        self.cargar_usuarios()
 
     def crear_planilla_izquierda(self):
         self.frame_izq = ctk.CTkFrame(self, fg_color="white", corner_radius=10, border_width=1, border_color="#D0D0D0")
@@ -63,9 +63,9 @@ class ModuloAccesos(ctk.CTkFrame):
         self.frame_det = ctk.CTkFrame(self, width=320, border_width=1, border_color="#D0D0D0", fg_color="white")
         self.frame_det.grid(row=0, column=1, padx=(0, 15), pady=15, sticky="nsew")
 
-        ctk.CTkLabel(self.frame_det, text="GESTIÓN DE CLIENTES", font=("Arial", 14, "bold"), text_color="black").pack(pady=20)
+        ctk.CTkLabel(self.frame_det, text="GESTIÓN DE USUARIOS", font=("Arial", 14, "bold"), text_color="black").pack(pady=20)
 
-        self.lbl_info = ctk.CTkLabel(self.frame_det, text="Seleccione un cliente de la lista", font=("Arial", 11), text_color="gray", wraplength=250)
+        self.lbl_info = ctk.CTkLabel(self.frame_det, text="Seleccione un usuario de la lista", font=("Arial", 11), text_color="gray", wraplength=250)
         self.lbl_info.pack(pady=10)
 
         ctk.CTkFrame(self.frame_det, height=2, fg_color="#EEEEEE").pack(fill="x", padx=20, pady=20)
@@ -73,24 +73,24 @@ class ModuloAccesos(ctk.CTkFrame):
         self.btn_editar = ctk.CTkButton(self.frame_det, text="✏️ Editar Datos", fg_color="#3498DB", text_color="white", command=self.abrir_ventana_editar, state="disabled")
         self.btn_editar.pack(pady=10, padx=30, fill="x")
 
-        self.btn_borrar = ctk.CTkButton(self.frame_det, text="🗑️ Borrar Cliente", fg_color="#E74C3C", text_color="white", command=self.borrar_usuario, state="disabled")
+        self.btn_borrar = ctk.CTkButton(self.frame_det, text="🗑️ Borrar Usuario", fg_color="#E74C3C", text_color="white", command=self.borrar_usuario, state="disabled")
         self.btn_borrar.pack(pady=10, padx=30, fill="x")
 
-        self.btn_refresh = ctk.CTkButton(self.frame_det, text="🔄 Refrescar", fg_color="#7F8C8D", text_color="white", command=self.cargar_clientes)
+        self.btn_refresh = ctk.CTkButton(self.frame_det, text="🔄 Refrescar", fg_color="#7F8C8D", text_color="white", command=self.cargar_usuarios)
         self.btn_refresh.pack(pady=12, padx=30, fill="x")
 
-    def cargar_clientes(self):
-        ok, data = svc.get_all_clients()
-        self.clientes = data if ok else []
+    def cargar_usuarios(self):
+        ok, data = svc.get_all_users()
+        self.usuarios = data if ok else []
         if not ok:
-            messagebox.showerror("Error", f"No fue posible obtener clientes: {data}")
+            messagebox.showerror("Error", f"No fue posible obtener usuarios: {data}")
         self.actualizar_tabla_local()
 
     def actualizar_tabla_local(self, e=None):
         for i in self.tabla.get_children():
             self.tabla.delete(i)
         busq = self.entry_busqueda.get().lower() if hasattr(self, 'entry_busqueda') else ""
-        for u in (self.clientes or []):
+        for u in (self.usuarios or []):
             nombre = (u.get('nombre') or "").lower()
             ci_ruc = (u.get('ci_ruc') or "").lower()
             if busq in nombre or busq in ci_ruc:
@@ -114,23 +114,23 @@ class ModuloAccesos(ctk.CTkFrame):
         except Exception:
             ci_ruc = ''
         # Buscar en la lista cargada
-        self.usuario_seleccionado = next((c for c in (self.clientes or []) if str(c.get('ci_ruc') or '').strip() == ci_ruc), None)
+        self.usuario_seleccionado = next((c for c in (self.usuarios or []) if str(c.get('ci_ruc') or '').strip() == ci_ruc), None)
         if not self.usuario_seleccionado:
             # intentar por id
             try:
                 vid = str(vals[0]).strip()
-                self.usuario_seleccionado = next((c for c in (self.clientes or []) if str(c.get('id') or '') == vid), None)
+                self.usuario_seleccionado = next((c for c in (self.usuarios or []) if str(c.get('id') or '') == vid), None)
             except Exception:
                 self.usuario_seleccionado = None
         if not self.usuario_seleccionado:
             # intentar por nombre
             try:
                 vname = str(vals[2]).strip().lower()
-                self.usuario_seleccionado = next((c for c in (self.clientes or []) if (c.get('nombre') or '').strip().lower() == vname), None)
+                self.usuario_seleccionado = next((c for c in (self.usuarios or []) if (c.get('nombre') or '').strip().lower() == vname), None)
             except Exception:
                 self.usuario_seleccionado = None
         if not self.usuario_seleccionado:
-            print(f"Cliente no encontrado para fila: {vals}")
+            print(f"Usuario no encontrado para fila: {vals}")
             return
         if self.usuario_seleccionado:
             self.lbl_info.configure(text=f"{self.usuario_seleccionado.get('nombre')}\nCI/RUC: {self.usuario_seleccionado.get('ci_ruc')}", text_color="black")
@@ -142,7 +142,7 @@ class ModuloAccesos(ctk.CTkFrame):
         if not u:
             return
         vent = ctk.CTkToplevel(self)
-        vent.title("Editar Cliente")
+        vent.title("Editar Usuario")
         vent.geometry("380x400")
         vent.attributes("-topmost", True)
         vent.grab_set()
@@ -160,19 +160,19 @@ class ModuloAccesos(ctk.CTkFrame):
                 'nombre': entry_nom.get().strip(),
                 'email': entry_mail.get().strip(),
             }
-            # Intentar actualizar el registro identificado por la CI/RUC actual
-            ok, msg = svc.update_client(u.get('ci_ruc'), updates)
+            # Si se cambió la CI/RUC, incluirlo en el mismo payload para evitar múltiples llamadas
+            if new_ci and new_ci != (u.get('ci_ruc') or '').strip():
+                updates['ci_ruc'] = new_ci
+
+            # Intentar actualizar el registro identificado por id (más fiable) si está disponible
+            if u.get('id'):
+                ok, msg = svc.update_user_by_id(u.get('id'), updates)
+            else:
+                ok, msg = svc.update_user(u.get('ci_ruc'), updates)
             if ok:
-                # Si se cambió la CI/RUC, intentar actualizar esa columna también
-                if new_ci and new_ci != u.get('ci_ruc'):
-                    try:
-                        ok2, msg2 = svc.update_client(u.get('ci_ruc'), {'ci_ruc': new_ci})
-                        # Si falló el cambio de CI, no interrumpir; el resto ya fue actualizado
-                    except Exception:
-                        pass
-                messagebox.showinfo("Éxito", "Cliente actualizado correctamente.")
+                messagebox.showinfo("Éxito", "Usuario actualizado correctamente.")
                 vent.destroy()
-                self.cargar_clientes()
+                self.cargar_usuarios()
             else:
                 messagebox.showerror("Error", f"No se pudo actualizar: {msg}")
 
@@ -190,10 +190,10 @@ class ModuloAccesos(ctk.CTkFrame):
         if not u:
             return
         if messagebox.askyesno("Confirmar", f"¿Desea eliminar definitivamente a {u.get('nombre')} (CI/RUC: {u.get('ci_ruc')})?"):
-            ok, msg = svc.delete_client(u.get('ci_ruc'))
+            ok, msg = svc.delete_user(u.get('ci_ruc'))
             if ok:
-                messagebox.showinfo("Eliminado", "Cliente borrado del sistema.")
-                self.cargar_clientes()
+                messagebox.showinfo("Eliminado", "Usuario borrado del sistema.")
+                self.cargar_usuarios()
             else:
                 messagebox.showerror("Error", f"No se pudo eliminar: {msg}")
 

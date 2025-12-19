@@ -285,6 +285,9 @@ def update_work_order_status(ot_nro, new_status: str):
         return False, f"Error al actualizar estado: {e}"
 
 
+
+
+
 def verify_user_credentials(ci_ruc: str, password: str):
     """Verifica credenciales. Retorna (True, nombre) o (False, mensaje)."""
     if not supabase:

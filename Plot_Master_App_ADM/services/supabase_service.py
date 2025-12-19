@@ -106,6 +106,46 @@ def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str, email: str
         print(f"Error al insertar cliente: {e}")
         return False, f"Error inesperado al guardar: {e}"
 
+
+
+
+
+def update_user_by_id(user_id, updates: dict):
+    """Actualiza un usuario identificado por su `id` en la tabla 'usuarios'."""
+    if not supabase: return False, "No hay conexión con la base de datos."
+    try:
+        # Normalizar id a entero cuando sea posible
+        try:
+            user_id_key = int(user_id)
+        except Exception:
+            user_id_key = user_id
+
+        response = supabase.table('usuarios').update(updates).eq('id', user_id_key).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+
+        # Verificar mediante un SELECT que los campos se aplicaron
+        try:
+            sel = supabase.table('usuarios').select(','.join([k for k in ['id','ci_ruc','nombre','email']])).eq('id', user_id_key).limit(1).execute()
+            if not getattr(sel, 'data', None):
+                return False, "No se encontró el usuario tras la actualización (posible problema de permisos)."
+            row = sel.data[0]
+            # Comparar campos provistos en updates
+            for k, v in (updates or {}).items():
+                if k not in row:
+                    continue
+                val_db = row.get(k)
+                # Normalizar a str para comparación segura
+                if (val_db or '') != (v or ''):
+                    return False, f"Campo '{k}' no se actualizó correctamente. Esperado: '{v}', DB: '{val_db}'"
+            return True, "Usuario actualizado"
+        except Exception as e:
+            print(f"Error verificando actualización por id: {e}")
+            return False, f"Actualización posiblemente aplicada pero verificación falló: {e}"
+    except Exception as e:
+        print(f"Error al actualizar usuario por id: {e}")
+        return False, f"Error al actualizar usuario: {e}"
+
 # --- FUNCIONES PARA ADMINISTRADORES (USAR SOLO LA TABLA administradores) ---
 
 def get_admin_by_ci_ruc(ci_ruc: str):
@@ -247,6 +287,59 @@ def get_all_clients():
         return False, f"Error inesperado al obtener clientes: {e}"
 
 
+def get_all_users():
+    """Devuelve todos los usuarios (vendedores) desde la tabla 'usuarios'."""
+    if not supabase: return False, "No hay conexión con la base de datos."
+    try:
+        response = supabase.table('usuarios').select('*').order('created_at', desc=True).execute()
+        return True, (response.data or [])
+    except Exception as e:
+        print(f"Error al obtener usuarios: {e}")
+        return False, f"Error inesperado al obtener usuarios: {e}"
+
+
+def update_user(ci_ruc, updates: dict):
+    """Actualiza un usuario identificado por su CI/RUC en la tabla 'usuarios'."""
+    if not supabase: return False, "No hay conexión con la base de datos."
+    try:
+        response = supabase.table('usuarios').update(updates).eq('ci_ruc', ci_ruc).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+
+        # Determinar el CI/RUC a consultar tras la actualización (puede haberse cambiado)
+        ci_select = updates.get('ci_ruc', ci_ruc)
+        try:
+            sel = supabase.table('usuarios').select('ci_ruc,nombre,email').eq('ci_ruc', ci_select).limit(1).execute()
+            if not getattr(sel, 'data', None):
+                return False, "No se encontró el usuario tras la actualización (posible problema de permisos o filtro)."
+            row = sel.data[0]
+            for k, v in (updates or {}).items():
+                if k not in row:
+                    continue
+                if (row.get(k) or '') != (v or ''):
+                    return False, f"Campo '{k}' no se actualizó correctamente. Esperado: '{v}', DB: '{row.get(k)}'"
+            return True, "Usuario actualizado"
+        except Exception as e:
+            print(f"Error verificando actualización por CI/RUC: {e}")
+            return False, f"Actualización posiblemente aplicada pero verificación falló: {e}"
+    except Exception as e:
+        print(f"Error al actualizar usuario: {e}")
+        return False, f"Error al actualizar usuario: {e}"
+
+
+def delete_user(ci_ruc: str):
+    """Elimina un usuario (vendedor) por su CI/RUC de la tabla 'usuarios'."""
+    if not supabase: return False, "No hay conexión con la base de datos."
+    try:
+        response = supabase.table('usuarios').delete().eq('ci_ruc', ci_ruc).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+        return True, "Usuario eliminado"
+    except Exception as e:
+        print(f"Error al eliminar usuario: {e}")
+        return False, f"Error al eliminar usuario: {e}"
+
+
 def update_client(ci_ruc, updates: dict):
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
@@ -272,12 +365,20 @@ def get_work_orders_by_client(ci_ruc: str):
     """Devuelve las órdenes de trabajo asociadas al CI/RUC del cliente."""
     if not supabase:
         return False, "No hay conexión con la base de datos."
-    try:
-        response = supabase.table('ordenes_trabajo').select('ot_nro, fecha_creacion, status').eq('cliente_ci_ruc', ci_ruc).order('fecha_creacion', desc=True).execute()
-        return True, (response.data or [])
-    except Exception as e:
-        print(f"Error al obtener OTs por cliente: {e}")
-        return False, f"Error inesperado al obtener OTs: {e}"
+    # Intentar una vez y reintentar una vez si hay un cierre de conexión inesperado
+    import time
+    for attempt in range(2):
+        try:
+            response = supabase.table('ordenes_trabajo').select('ot_nro, fecha_creacion, status').eq('cliente_ci_ruc', ci_ruc).order('fecha_creacion', desc=True).execute()
+            return True, (response.data or [])
+        except Exception as e:
+            err_str = str(e)
+            print(f"Error al obtener OTs por cliente (attempt {attempt+1}): {err_str}")
+            # Si es el primer intento, esperar un breve periodo y reintentar
+            if attempt == 0:
+                time.sleep(0.5)
+                continue
+            return False, f"Error inesperado al obtener OTs: {err_str}"
 
 
 # Note: usuario-related helper functions removed. Use administradores table and the admin functions above.

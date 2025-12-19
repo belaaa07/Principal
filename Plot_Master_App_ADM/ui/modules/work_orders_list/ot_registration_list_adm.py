@@ -5,7 +5,6 @@ from services.supabase_service import (
     get_all_work_orders,
     update_work_order_status,
     update_work_order_value,
-    delete_work_order,
 )
 
 # --- CONFIGURACIÓN DE ESTILO ---
@@ -62,10 +61,11 @@ class ModuloOTs(ctk.CTkFrame):
         
         ctk.CTkLabel(header, text="PLANILLA DE OTs", font=("Arial", 22, "bold")).pack(side="left")
         
-        # FILTRO CON TODOS LOS ESTADOS RECUPERADOS
+        # Administrador: permitir ver OTs por estado (por defecto: Todos)
+        estados_admin = ["Todos", "Pendiente", "Aprobado", "Entregado", "Finalizado"]
         self.filtro_var = ctk.StringVar(value="Todos")
-        self.combo_filtro = ctk.CTkComboBox(header, values=["Todos", "Pendiente", "Aprobado", "Entregado", "Finalizado"], 
-                                            variable=self.filtro_var, command=self.actualizar_tabla, width=140)
+        self.combo_filtro = ctk.CTkComboBox(header, values=estados_admin,
+                    variable=self.filtro_var, command=self.actualizar_tabla, width=140)
         self.combo_filtro.pack(side="left", padx=20)
 
         self.entry_busqueda = ctk.CTkEntry(header, placeholder_text="🔍 Buscar...", width=300)
@@ -84,11 +84,15 @@ class ModuloOTs(ctk.CTkFrame):
         self.scroll_h_tabla = ctk.CTkScrollbar(cont_tabla_v, orientation="horizontal", command=self.tabla.xview)
         self.tabla.configure(yscrollcommand=self.scroll_v_tabla.set, xscrollcommand=self.scroll_h_tabla.set)
 
-        # CONFIGURACIÓN DE COLORES
-        self.tabla.tag_configure("pendiente", background="#E0E0E0") # Gris
-        self.tabla.tag_configure("aprobado", background="#FFCDD2")  # Rojo
-        self.tabla.tag_configure("entregado", background="#FFF9C4") # Amarillo claro (opcional)
-        self.tabla.tag_configure("finalizado", background="#C8E6C9") # Verde claro (opcional)
+        # CONFIGURACIÓN DE COLORES (ADMIN - tonos más suaves, respetando asignaciones)
+        # Pendiente: rojo claro (administrador)
+        self.tabla.tag_configure("pendiente", background="#FADBD8")
+        # Aprobado: naranja claro (administrador)
+        self.tabla.tag_configure("aprobado", background="#FDE8C8")
+        # Entregado: amarillo claro (administrador)
+        self.tabla.tag_configure("entregado", background="#FFF4CC")
+        # Finalizado: verde claro (administrador)
+        self.tabla.tag_configure("finalizado", background="#BDECB6")
 
         anchos = {"ot": 60, "fecha": 90, "vendedor": 100, "cliente": 150, "descripcion": 350, "monto": 100, "abonado": 100, "pago": 90, "estado": 100}
         for col in columnas:
@@ -110,6 +114,10 @@ class ModuloOTs(ctk.CTkFrame):
         # Mapear a estructura interna usada por la UI
         mapped = []
         for r in data:
+            status_val = (r.get('status') or '').strip().lower()
+            # Administrador nunca debe ver OTs rechazadas
+            if status_val == 'rechazado':
+                continue
             mapped.append({
                 'ot': str(r.get('ot_nro') or r.get('ot') or ''),
                 'fecha': (r.get('fecha_creacion') or r.get('created_at') or '').split('T')[0] if r.get('fecha_creacion') or r.get('created_at') else '',
@@ -180,6 +188,9 @@ class ModuloOTs(ctk.CTkFrame):
 
         self.btn_rechazar = ctk.CTkButton(self.frame_det, text="RECHAZAR OT", height=45, fg_color="#E74C3C", command=self.rechazar_ot)
         self.btn_rechazar.pack(pady=5, fill="x", padx=10)
+        # Botones de entrega y finalización (se muestran según estado)
+        self.btn_marcar_entregado = ctk.CTkButton(self.frame_det, text="MARCAR COMO ENTREGADO", height=45, fg_color="#F39C12", command=self.abrir_modal_entrega)
+        self.btn_finalizar = ctk.CTkButton(self.frame_det, text="FINALIZAR PEDIDO", height=45, fg_color="#27AE60", command=lambda: self.cambiar_estado("finalizado"))
 
     def crear_dato(self, titulo):
         f = ctk.CTkFrame(self.info_container, fg_color="transparent")
@@ -269,13 +280,54 @@ class ModuloOTs(ctk.CTkFrame):
         self.lbl_abonado.configure(text=f"{abono:,} Gs.")
         self.lbl_saldo.configure(text=f"{d['monto'] - abono:,} Gs.")
 
-        # Lógica de Bloqueo de botones si está aprobado (o finalizado)
-        if d['estado'] in ["Aprobado", "Finalizado"]:
-            self.btn_aprobar.configure(state="disabled", fg_color="gray")
-            self.btn_rechazar.configure(state="disabled", fg_color="gray")
-        else:
+        # Lógica de botones según estado (mostrar solo cuando corresponda)
+        estado_lower = (d.get('estado') or '').lower()
+        if estado_lower == 'pendiente':
             self.btn_aprobar.configure(state="normal", fg_color="#27AE60")
             self.btn_rechazar.configure(state="normal", fg_color="#E74C3C")
+            try:
+                self.btn_marcar_entregado.pack_forget()
+            except Exception:
+                pass
+            try:
+                self.btn_finalizar.pack_forget()
+            except Exception:
+                pass
+        elif estado_lower == 'aprobado':
+            self.btn_aprobar.configure(state="disabled", fg_color="gray")
+            self.btn_rechazar.configure(state="disabled", fg_color="gray")
+            # mostrar botón de entrega
+            try:
+                self.btn_marcar_entregado.pack(pady=5, fill="x", padx=10)
+            except Exception:
+                pass
+            try:
+                self.btn_finalizar.pack_forget()
+            except Exception:
+                pass
+        elif estado_lower == 'entregado':
+            self.btn_aprobar.configure(state="disabled", fg_color="gray")
+            self.btn_rechazar.configure(state="disabled", fg_color="gray")
+            try:
+                self.btn_marcar_entregado.pack_forget()
+            except Exception:
+                pass
+            try:
+                self.btn_finalizar.pack(pady=5, fill="x", padx=10)
+            except Exception:
+                pass
+        else:
+            # finalizado, rechazado u otros
+            self.btn_aprobar.configure(state="disabled", fg_color="gray")
+            self.btn_rechazar.configure(state="disabled", fg_color="gray")
+            try:
+                self.btn_marcar_entregado.pack_forget()
+            except Exception:
+                pass
+            try:
+                self.btn_finalizar.pack_forget()
+            except Exception:
+                pass
 
     def abrir_ventana_pago(self):
         if self.ot_seleccionada: VentanaAbono(self, self.registrar_abono_final)
@@ -288,26 +340,98 @@ class ModuloOTs(ctk.CTkFrame):
     def cambiar_estado(self, nuevo_estado):
         if self.ot_seleccionada:
             ot_n = self.ot_seleccionada.get('ot')
-            ok, msg = update_work_order_status(ot_n, nuevo_estado)
+            # Normalizar para la DB: usar Title-case exacto del ENUM
+            try:
+                estado_db = str(nuevo_estado).strip().title()
+            except Exception:
+                estado_db = nuevo_estado
+            ok, msg = update_work_order_status(ot_n, estado_db)
             if ok:
-                self.ot_seleccionada['estado'] = nuevo_estado
+                # Mantener la presentación en UI con Title-case
+                self.ot_seleccionada['estado'] = estado_db if isinstance(estado_db, str) else nuevo_estado
                 self.actualizar_tabla()
                 self.refrescar_detalle()
             else:
                 messagebox.showerror("Error", f"No se pudo cambiar estado: {msg}")
+    
+    def abrir_modal_entrega(self):
+        # Modal que pide fecha de entrega obligatoria
+        if not self.ot_seleccionada:
+            return
+        win = ctk.CTkToplevel(self)
+        win.title("Registrar Entrega")
+        win.geometry("420x220")
+        win.attributes("-topmost", True)
+        win.grab_set()
 
+        ctk.CTkLabel(win, text="Seleccionar Fecha de Entrega", font=("Arial", 13, "bold")).pack(pady=(12, 6))
+
+        # Date picker simple con tres comboboxes (día, mes, año) para mantener compatibilidad sin nuevas dependencias
+        fr_date = ctk.CTkFrame(win, fg_color="transparent")
+        fr_date.pack(pady=6)
+
+        import datetime as _dt
+        hoy = _dt.date.today()
+        dias = [f"{i:02d}" for i in range(1, 32)]
+        meses = [f"{i:02d}" for i in range(1, 13)]
+        anio_inicio = hoy.year - 1
+        anios = [str(y) for y in range(anio_inicio, anio_inicio + 5)]
+
+        self.cb_dia = ctk.CTkComboBox(fr_date, values=dias, width=80)
+        self.cb_mes = ctk.CTkComboBox(fr_date, values=meses, width=80)
+        self.cb_anio = ctk.CTkComboBox(fr_date, values=anios, width=100)
+        self.cb_dia.pack(side="left", padx=(6,4))
+        self.cb_mes.pack(side="left", padx=4)
+        self.cb_anio.pack(side="left", padx=(4,6))
+
+        # Inicializar con la fecha de hoy
+        try:
+            self.cb_dia.set(f"{hoy.day:02d}")
+            self.cb_mes.set(f"{hoy.month:02d}")
+            self.cb_anio.set(str(hoy.year))
+        except Exception:
+            pass
+
+        def confirmar():
+            d = (self.cb_dia.get() or '').strip()
+            m = (self.cb_mes.get() or '').strip()
+            y = (self.cb_anio.get() or '').strip()
+            fecha = f"{d}/{m}/{y}"
+            try:
+                from datetime import datetime as __dt
+                __dt.strptime(fecha, "%d/%m/%Y")
+            except Exception:
+                messagebox.showerror("Error", "Seleccione una fecha válida.")
+                return
+            ok, msg = update_work_order_status(self.ot_seleccionada.get('ot'), 'Entregado')
+            if ok:
+                self.ot_seleccionada['estado'] = 'Entregado'
+                win.destroy()
+                self.actualizar_tabla()
+                self.refrescar_detalle()
+            else:
+                messagebox.showerror("Error", f"No se pudo actualizar estado: {msg}")
+
+        # Botones estilo más profesional: side-by-side con colores suaves
+        fr_btn = ctk.CTkFrame(win, fg_color="transparent")
+        fr_btn.pack(pady=(12,10))
+        btn_ok = ctk.CTkButton(fr_btn, text="Confirmar entrega", fg_color="#82E0AA", width=160, command=confirmar)
+        btn_cancel = ctk.CTkButton(fr_btn, text="Cancelar", fg_color="#F5B7B1", width=120, command=win.destroy)
+        btn_ok.pack(side="left", padx=8)
+        btn_cancel.pack(side="left", padx=8)
     def rechazar_ot(self):
         if self.ot_seleccionada:
-            if messagebox.askyesno("Confirmar", f"¿Está seguro de rechazar la OT {self.ot_seleccionada['ot']}? Se eliminará definitivamente."):
-                ok, msg = delete_work_order(self.ot_seleccionada.get('ot'))
+            if messagebox.askyesno("Confirmar", f"¿Está seguro de rechazar la OT {self.ot_seleccionada['ot']}? Esto marcará la OT como rechazada."):
+                ok, msg = update_work_order_status(self.ot_seleccionada.get('ot'), 'Rechazado')
                 if ok:
-                    # Quitar localmente
+                    # actualizar localmente y ocultarla del listado del admin
+                    self.ot_seleccionada['estado'] = 'Rechazado'
                     self.datos_ots = [d for d in self.datos_ots if d.get('ot') != self.ot_seleccionada.get('ot')]
                     self.ot_seleccionada = None
                     self.actualizar_tabla()
                     # Limpiar textos de detalle
                     self.lbl_ot_nro.configure(text="---")
-                    messagebox.showinfo("Eliminado", "La OT ha sido eliminada.")
+                    messagebox.showinfo("Rechazada", "La OT ha sido marcada como rechazada.")
                 else:
-                    messagebox.showerror("Error", f"No se pudo eliminar OT: {msg}")
+                    messagebox.showerror("Error", f"No se pudo actualizar la OT: {msg}")
 # No ejecutar como aplicación independiente; se integra en la ventana principal.

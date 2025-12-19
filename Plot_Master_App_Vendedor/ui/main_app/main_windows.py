@@ -190,9 +190,7 @@ class MainAppFrame(ctk.CTkFrame):
                                  anchor="w",
                                  command=lambda: self.select_frame_by_name(command_name))
 
-        # Botón Inicio (mantener funcionalidad de la app)
-        self.inicio_button = create_nav_button(1, "🏠  Inicio", "inicio")
-        self.inicio_button.grid(row=1, column=0, sticky="ew", padx=10, pady=(8,4))
+        # Botón Inicio eliminado por cambio de flujo (visual mantenido en ambas apps)
 
         # SECCIÓN: OTS (solo las dos entradas requeridas)
         ctk.CTkLabel(self.navigation_frame, text="OTS", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=2, column=0, padx=16, pady=(12,8), sticky="w")
@@ -221,8 +219,8 @@ class MainAppFrame(ctk.CTkFrame):
         # ------------------------------------------------------------------
         # 6. Inicialización y Lógica de Pestañas
         # ------------------------------------------------------------------
-        # Inicia mostrando el módulo de Inicio
-        self.select_frame_by_name("inicio")
+        # Inicia mostrando el módulo de Generar OT
+        self.select_frame_by_name("ordenes")
 
     def _create_module_frame(self, text):
         # Función para crear módulos genéricos
@@ -256,15 +254,20 @@ class MainAppFrame(ctk.CTkFrame):
 
     def select_frame_by_name(self, name):
         # Lógica de navegación principal (sidebar)
-        buttons = [self.inicio_button, self.ordenes_button, self.ordenes_list_button]
+        # Limpiar estado de los botones presentes (defensivo si alguno fue removido)
+        buttons = [getattr(self, 'inicio_button', None), getattr(self, 'ordenes_button', None), getattr(self, 'ordenes_list_button', None)]
         for button in buttons:
-            button.configure(fg_color="transparent")
+            try:
+                if button:
+                    button.configure(fg_color="transparent")
+            except Exception:
+                pass
 
         active_color = ("#69B5F9", "#0086E2")
 
         if name == "inicio":
-            self.inicio_button.configure(fg_color=active_color)
-            self._show_inicio()
+            # Inicio eliminado — mostrar módulo Generar OT por defecto
+            self._show_ordenes()
         elif name == "ordenes":
             self.ordenes_button.configure(fg_color=active_color)
             self._show_ordenes()

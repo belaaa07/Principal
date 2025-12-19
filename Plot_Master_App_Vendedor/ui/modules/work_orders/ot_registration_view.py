@@ -330,7 +330,7 @@ class OTForm(ctk.CTkFrame):
         envio_chk = ctk.CTkCheckBox(finance_frame, text="", variable=self.envio_var, onvalue=1, offvalue=0)
         envio_chk.grid(row=1, column=3, sticky="w", padx=10)
 
-        ctk.CTkLabel(work_box, text="Descripción / Problema del Equipo / Observaciones", padx=15).grid(row=2, column=0, sticky="sw", pady=(10,0))
+        ctk.CTkLabel(work_box, text="Descripción", padx=15).grid(row=2, column=0, sticky="sw", pady=(10,0))
         self.desc_textbox = ctk.CTkTextbox(work_box, height=150, border_width=1, border_color="#ced4da")
         self.desc_textbox.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=15, pady=15)
 

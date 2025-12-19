@@ -78,7 +78,8 @@ class ModuloClientes(ctk.CTkFrame):
         self.val_ruc = self.crear_linea_dato(self.container_datos, "CI/RUC:")
         self.val_tel = self.crear_linea_entry(self.container_datos, "Teléfono:")
         self.val_email = self.crear_linea_entry(self.container_datos, "Email:")
-        self.val_ciudad = self.crear_linea_entry(self.container_datos, "Ciudad/Zona:")
+        # Ciudad/Zona ahora es Combobox poblado desde DB
+        self.val_ciudad = self.crear_linea_combobox(self.container_datos, "Ciudad/Zona:")
 
         # Botón guardar cambios
         ctk.CTkButton(self.container_datos, text="Guardar cambios", fg_color="#27AE60", command=self.guardar_cliente).pack(pady=8)
@@ -109,6 +110,27 @@ class ModuloClientes(ctk.CTkFrame):
         e = ctk.CTkEntry(f, width=200)
         e.pack(side="left")
         return e
+
+    def crear_linea_combobox(self, parent, titulo):
+        f = ctk.CTkFrame(parent, fg_color="transparent")
+        f.pack(fill="x", pady=2)
+        ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), width=100, anchor="w", text_color="black").pack(side="left")
+        # usar CTkComboBox para mantener consistencia visual con el resto de campos
+        valores = [
+            'Areguá','Asunción','Capiatá','Fernando de la Mora','Guarambaré','Itá','Itauguá',
+            'J. Augusto Saldívar','Lambaré','Limpio','Luque','Mariano Roque Alonso','Nueva Italia',
+            'Ñemby','San Antonio','San Lorenzo','Villa Elisa','Villeta','Ypané','Ypacaraí','Otro'
+        ]
+        # iniciar variable vacía para que no se muestre el primer valor por defecto
+        cb_var = ctk.StringVar(value="")
+        cb = ctk.CTkComboBox(f, values=valores, width=200, variable=cb_var)
+        # iniciar deshabilitado; se habilita al seleccionar un cliente
+        try:
+            cb.configure(state="disabled")
+        except Exception:
+            pass
+        cb.pack(side="left")
+        return cb
 
     def actualizar_tabla(self, e=None):
         for i in self.tabla.get_children(): self.tabla.delete(i)
@@ -156,7 +178,21 @@ class ModuloClientes(ctk.CTkFrame):
         # Set entry values
         self.val_tel.delete(0, 'end'); self.val_tel.insert(0, cliente.get('telefono') or '')
         self.val_email.delete(0, 'end'); self.val_email.insert(0, cliente.get('email') or '')
-        self.val_ciudad.delete(0, 'end'); self.val_ciudad.insert(0, cliente.get('zona') or '')
+        # habilitar combobox y asignar valor
+        try:
+            if hasattr(self.val_ciudad, 'configure'):
+                self.val_ciudad.configure(state="normal")
+            # set value
+            try:
+                self.val_ciudad.set(cliente.get('zona') or '')
+            except Exception:
+                # fallback en caso de que CTkComboBox no tenga set
+                try:
+                    self.val_ciudad.delete(0, 'end'); self.val_ciudad.insert(0, cliente.get('zona') or '')
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # Cargar OTs reales desde la base de datos (Supabase)
         try:
             ok, data = get_work_orders_by_client(ci_ruc)
@@ -186,7 +222,7 @@ class ModuloClientes(ctk.CTkFrame):
         updates = {
             'telefono': self.val_tel.get(),
             'email': self.val_email.get(),
-            'zona': self.val_ciudad.get()
+            'zona': (self.val_ciudad.get() if hasattr(self.val_ciudad, 'get') else '')
         }
         ok, msg = update_client(ci, updates)
         if ok:
