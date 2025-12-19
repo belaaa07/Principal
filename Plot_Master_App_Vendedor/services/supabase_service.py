@@ -91,13 +91,15 @@ def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str, email: str
     if not supabase: return False, "No hay conexión con la base de datos."
 
     try:
-        data, count = supabase.table('clientes').insert({
+        response = supabase.table('clientes').insert({
             'nombre': nombre,
             'ci_ruc': ci_ruc,
             'telefono': telefono,
             'zona': zona,
             'email': email
         }).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
         return True, "Cliente guardado correctamente."
     except Exception as e:
         # Manejar error de duplicado de CI/RUC
@@ -145,7 +147,9 @@ def insert_work_order(ot_data: dict):
         if 'vendedor' in ot_data and ot_data['vendedor']:
             payload['vendedor'] = ot_data['vendedor']
 
-        data, count = supabase.table('ordenes_trabajo').insert(payload).execute()
+        response = supabase.table('ordenes_trabajo').insert(payload).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
         return True, "Orden de Trabajo guardada correctamente."
     except Exception as e:
         if 'duplicate key value violates unique constraint "ordenes_trabajo_pkey"' in str(e):
@@ -192,7 +196,6 @@ def create_user(nombre: str, ci_ruc: str, password: str, email: str = None, esta
             'estado': estado
         }
         response = supabase.table('usuarios').insert(data).execute()
-        # supabase-py may return response.error or raise; check both
         if hasattr(response, 'error') and response.error:
             raise Exception(response.error)
         return True, "Usuario registrado correctamente."
@@ -228,7 +231,7 @@ def get_all_work_orders():
     if not supabase: return False, "No hay conexión con la base de datos."
 
     try:
-        response = supabase.table('ordenes_trabajo').select('*').order('fecha_creacion', desc=True).execute()
+        response = supabase.table('ordenes_trabajo').select('*').order('ot_nro', desc=True).execute()
         if response.data:
             return True, response.data
         else:
@@ -243,13 +246,44 @@ def get_work_orders_by_vendedor(vendedor: str):
     if not supabase:
         return False, "No hay conexión con la base de datos."
     try:
-        response = supabase.table('ordenes_trabajo').select('*').eq('vendedor', vendedor).order('fecha_creacion', desc=True).execute()
+        response = supabase.table('ordenes_trabajo').select('*').eq('vendedor', vendedor).order('ot_nro', desc=True).execute()
         if response.data:
             return True, response.data
         return True, []
     except Exception as e:
         print(f"Error al obtener las órdenes de trabajo por vendedor: {e}")
         return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
+
+
+def add_sena_to_order(ot_nro, amount):
+    """Suma `amount` al campo `sena` de la orden identificada por `ot_nro`.
+    Retorna (True, mensaje) o (False, mensaje).
+    """
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+    try:
+        resp = supabase.table('ordenes_trabajo').select('sena').eq('ot_nro', ot_nro).limit(1).execute()
+        if not getattr(resp, 'data', None):
+            return False, "Orden no encontrada para actualizar 'sena'."
+        cur = resp.data[0].get('sena') or 0
+        try:
+            cur_val = float(cur)
+        except Exception:
+            cur_val = 0
+        try:
+            add_val = float(amount)
+        except Exception:
+            return False, "Monto inválido para agregar a 'sena'."
+        nuevo = cur_val + add_val
+        upd = supabase.table('ordenes_trabajo').update({'sena': nuevo}).eq('ot_nro', ot_nro).execute()
+        if hasattr(upd, 'error') and upd.error:
+            return False, str(upd.error)
+        if not getattr(upd, 'data', None):
+            return False, "No se actualizó la orden (posible problema de permisos)."
+        return True, f"Sena actualizada a {nuevo}"
+    except Exception as e:
+        print(f"Error al agregar sena a OT {ot_nro}: {e}")
+        return False, f"Error al actualizar sena: {e}"
 
 
 def update_work_order_status(ot_nro, new_status: str):

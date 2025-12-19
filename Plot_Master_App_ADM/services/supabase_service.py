@@ -91,13 +91,15 @@ def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str, email: str
     if not supabase: return False, "No hay conexión con la base de datos."
 
     try:
-        data, count = supabase.table('clientes').insert({
+        response = supabase.table('clientes').insert({
             'nombre': nombre,
             'ci_ruc': ci_ruc,
             'telefono': telefono,
             'zona': zona,
             'email': email
         }).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
         return True, "Cliente guardado correctamente."
     except Exception as e:
         # Manejar error de duplicado de CI/RUC
@@ -124,18 +126,15 @@ def update_user_by_id(user_id, updates: dict):
         if hasattr(response, 'error') and response.error:
             return False, str(response.error)
 
-        # Verificar mediante un SELECT que los campos se aplicaron
         try:
-            sel = supabase.table('usuarios').select(','.join([k for k in ['id','ci_ruc','nombre','email']])).eq('id', user_id_key).limit(1).execute()
+            sel = supabase.table('usuarios').select('id,ci_ruc,nombre,email').eq('id', user_id_key).limit(1).execute()
             if not getattr(sel, 'data', None):
                 return False, "No se encontró el usuario tras la actualización (posible problema de permisos)."
             row = sel.data[0]
-            # Comparar campos provistos en updates
             for k, v in (updates or {}).items():
                 if k not in row:
                     continue
                 val_db = row.get(k)
-                # Normalizar a str para comparación segura
                 if (val_db or '') != (v or ''):
                     return False, f"Campo '{k}' no se actualizó correctamente. Esperado: '{v}', DB: '{val_db}'"
             return True, "Usuario actualizado"
@@ -229,7 +228,7 @@ def create_admin(nombre: str, ci_ruc: str, password: str, email: str = None, est
 def get_all_work_orders():
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
-        response = supabase.table('ordenes_trabajo').select('*').order('fecha_creacion', desc=True).execute()
+        response = supabase.table('ordenes_trabajo').select('*').order('ot_nro', desc=True).execute()
         return True, (response.data or [])
     except Exception as e:
         print(f"Error al obtener las órdenes de trabajo: {e}")
@@ -250,16 +249,56 @@ def update_work_order_status(ot_nro, status):
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
         response = supabase.table('ordenes_trabajo').update({'status': status}).eq('ot_nro', ot_nro).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+        if not getattr(response, 'data', None):
+            return False, "No se actualizó ninguna orden (OT no encontrada o sin permisos)."
         return True, "Estado actualizado"
     except Exception as e:
         print(f"Error al actualizar estado OT: {e}")
         return False, f"Error al actualizar estado: {e}"
 
 
+def add_sena_to_order(ot_nro, amount):
+    """Suma `amount` al campo `sena` de la orden identificada por `ot_nro`.
+    Retorna (True, mensaje) o (False, mensaje).
+    """
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+    try:
+        # Obtener valor actual
+        resp = supabase.table('ordenes_trabajo').select('sena').eq('ot_nro', ot_nro).limit(1).execute()
+        if not getattr(resp, 'data', None):
+            return False, "Orden no encontrada para actualizar 'sena'."
+        cur = resp.data[0].get('sena') or 0
+        try:
+            cur_val = float(cur)
+        except Exception:
+            cur_val = 0
+        try:
+            add_val = float(amount)
+        except Exception:
+            return False, "Monto inválido para agregar a 'sena'."
+        nuevo = cur_val + add_val
+        upd = supabase.table('ordenes_trabajo').update({'sena': nuevo}).eq('ot_nro', ot_nro).execute()
+        if hasattr(upd, 'error') and upd.error:
+            return False, str(upd.error)
+        if not getattr(upd, 'data', None):
+            return False, "No se actualizó la orden (posible problema de permisos)."
+        return True, f"Sena actualizada a {nuevo}"
+    except Exception as e:
+        print(f"Error al agregar sena a OT {ot_nro}: {e}")
+        return False, f"Error al actualizar sena: {e}"
+
+
 def update_work_order_value(ot_nro, valor_total):
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
         response = supabase.table('ordenes_trabajo').update({'valor_total': valor_total}).eq('ot_nro', ot_nro).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+        if not getattr(response, 'data', None):
+            return False, "No se actualizó ninguna orden (OT no encontrada o sin permisos)."
         return True, "Valor actualizado"
     except Exception as e:
         print(f"Error al actualizar valor OT: {e}")
@@ -270,6 +309,10 @@ def delete_work_order(ot_nro):
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
         response = supabase.table('ordenes_trabajo').delete().eq('ot_nro', ot_nro).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+        if not getattr(response, 'data', None):
+            return False, "No se eliminó ninguna orden (OT no encontrada o sin permisos)."
         return True, "Orden eliminada"
     except Exception as e:
         print(f"Error al eliminar OT: {e}")
@@ -306,7 +349,6 @@ def update_user(ci_ruc, updates: dict):
         if hasattr(response, 'error') and response.error:
             return False, str(response.error)
 
-        # Determinar el CI/RUC a consultar tras la actualización (puede haberse cambiado)
         ci_select = updates.get('ci_ruc', ci_ruc)
         try:
             sel = supabase.table('usuarios').select('ci_ruc,nombre,email').eq('ci_ruc', ci_select).limit(1).execute()
@@ -334,6 +376,8 @@ def delete_user(ci_ruc: str):
         response = supabase.table('usuarios').delete().eq('ci_ruc', ci_ruc).execute()
         if hasattr(response, 'error') and response.error:
             return False, str(response.error)
+        if not getattr(response, 'data', None):
+            return False, "No se eliminó ningún usuario (CI/RUC no encontrado o sin permisos)."
         return True, "Usuario eliminado"
     except Exception as e:
         print(f"Error al eliminar usuario: {e}")
@@ -344,6 +388,10 @@ def update_client(ci_ruc, updates: dict):
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
         response = supabase.table('clientes').update(updates).eq('ci_ruc', ci_ruc).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+        if not getattr(response, 'data', None):
+            return False, "No se actualizó ningún cliente (CI/RUC no encontrado o sin permisos)."
         return True, "Cliente actualizado"
     except Exception as e:
         print(f"Error al actualizar cliente: {e}")
@@ -355,6 +403,10 @@ def delete_client(ci_ruc: str):
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
         response = supabase.table('clientes').delete().eq('ci_ruc', ci_ruc).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+        if not getattr(response, 'data', None):
+            return False, "No se eliminó ningún cliente (CI/RUC no encontrado o sin permisos)."
         return True, "Cliente eliminado"
     except Exception as e:
         print(f"Error al eliminar cliente: {e}")

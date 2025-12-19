@@ -5,6 +5,7 @@ from services.supabase_service import (
     get_all_work_orders,
     update_work_order_status,
     update_work_order_value,
+    add_sena_to_order,
 )
 
 # --- CONFIGURACIÓN DE ESTILO ---
@@ -67,6 +68,12 @@ class ModuloOTs(ctk.CTkFrame):
         self.combo_filtro = ctk.CTkComboBox(header, values=estados_admin,
                     variable=self.filtro_var, command=self.actualizar_tabla, width=140)
         self.combo_filtro.pack(side="left", padx=20)
+        # Botón actualizar (recarga desde BD)
+        try:
+            self.btn_actualizar = ctk.CTkButton(header, text="Actualizar", width=110, command=self.cargar_ots_desde_db)
+            self.btn_actualizar.pack(side="left", padx=6)
+        except Exception:
+            self.btn_actualizar = None
 
         self.entry_busqueda = ctk.CTkEntry(header, placeholder_text="🔍 Buscar...", width=300)
         self.entry_busqueda.pack(side="right")
@@ -125,7 +132,8 @@ class ModuloOTs(ctk.CTkFrame):
                 'cliente': r.get('cliente_ci_ruc') or r.get('ci_ruc') or '',
                 'descripcion': r.get('descripcion') or '',
                 'monto': int(r.get('valor_total') or 0),
-                'pagos': [],
+                'pagos': r.get('pagos') or [],
+                'sena': r.get('sena', 0) or 0,
                 'pago': r.get('forma_pago') or '',
                 'estado': r.get('status') or '',
                 'envio': 'Con Envío' if r.get('solicita_envio') else 'Sin Envío',
@@ -222,7 +230,15 @@ class ModuloOTs(ctk.CTkFrame):
             vendedor_lower = (d.get('vendedor') or '').lower()
             if (filtro == "Todos" or d.get("estado") == filtro) and \
                (busq in cliente_lower or busq in str(d.get('ot')) or busq in descripcion_lower or busq in vendedor_lower):
-                abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+                # Preferir campo 'sena' si existe
+                sena_val = d.get('sena', None)
+                if sena_val is None:
+                    abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+                else:
+                    try:
+                        abono = float(sena_val)
+                    except Exception:
+                        abono = sum(p.get('m', 0) for p in d.get('pagos', []))
                 tag = (d.get("estado") or '').lower()
                 self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("vendedor"), d.get("cliente"), d.get("descripcion"), f"{d.get('monto'):,} Gs.", f"{abono:,} Gs.", d.get("pago"), d.get("estado")), tags=(tag,))
 
@@ -333,9 +349,21 @@ class ModuloOTs(ctk.CTkFrame):
         if self.ot_seleccionada: VentanaAbono(self, self.registrar_abono_final)
 
     def registrar_abono_final(self, m):
-        self.ot_seleccionada['pagos'].append({"m": m, "f": datetime.now().strftime("%d/%m/%y")})
-        self.refrescar_detalle()
-        self.actualizar_tabla()
+        if not self.ot_seleccionada:
+            return
+        ot_n = self.ot_seleccionada.get('ot')
+        ok, msg = add_sena_to_order(ot_n, m)
+        if ok:
+            messagebox.showinfo("Abono registrado", msg)
+            # Recargar desde BD para reflejar 'sena' acumulada
+            try:
+                self.cargar_ots_desde_db()
+            except Exception:
+                # Fallback: mantener en memoria y actualizar UI
+                self.ot_seleccionada['pagos'].append({"m": m, "f": datetime.now().strftime("%d/%m/%y")})
+                self.refrescar_detalle(); self.actualizar_tabla()
+        else:
+            messagebox.showerror("Error al registrar abono", f"No se pudo registrar abono: {msg}")
 
     def cambiar_estado(self, nuevo_estado):
         if self.ot_seleccionada:

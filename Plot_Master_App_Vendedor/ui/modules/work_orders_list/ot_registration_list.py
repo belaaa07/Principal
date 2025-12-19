@@ -45,35 +45,8 @@ class OTsFrame(ctk.CTkFrame):
         if isinstance(parent, ctk.CTk):
             parent.title("Plot Master App - Gestión de OTs")
             parent.geometry("1200x800")
-        # Cargar desde Supabase (obligatorio). No usar datos locales.
+        # Inicializar lista (se cargará después de crear la UI)
         self.datos_ots = []
-        if get_work_orders_by_vendedor and self.vendedor:
-            ok, data = get_work_orders_by_vendedor(self.vendedor)
-            if ok and isinstance(data, list):
-                mapped = []
-                for row in data:
-                    try:
-                        ot_nro = row.get('ot_nro')
-                        fecha = row.get('fecha_creacion')
-                        fecha_str = fecha if isinstance(fecha, str) else (fecha.strftime('%d/%m/%Y') if fecha else '')
-                        cliente = row.get('cliente_ci_ruc') or ''
-                        descripcion = row.get('descripcion') or ''
-                        monto = row.get('valor_total') or 0
-                        forma_pago = row.get('forma_pago') or ''
-                        estado = normalize_estado(row.get('status'))
-                        envio = 'Con Envío' if row.get('solicita_envio') else 'Sin Envío (Retira)'
-                        pagos = row.get('pagos') or []
-                        mapped.append({
-                            'ot': str(ot_nro), 'fecha': fecha_str, 'vendedor': row.get('vendedor') or '',
-                            'cliente': cliente, 'descripcion': descripcion, 'monto': float(monto) if monto is not None else 0,
-                            'pagos': pagos, 'pago': forma_pago, 'estado': estado, 'envio': envio
-                        })
-                    except Exception:
-                        continue
-                self.datos_ots = mapped
-        else:
-            # Si no hay servicio o no se indicó vendedor, dejar la lista vacía
-            self.datos_ots = []
 
         self.ot_seleccionada = None
 
@@ -84,6 +57,12 @@ class OTsFrame(ctk.CTkFrame):
         # Crear UI
         self.crear_planilla_izquierda()
         self.crear_detalle_derecha()
+        # Cargar OTs desde BD ahora que la UI está creada
+        try:
+            if get_work_orders_by_vendedor and self.vendedor:
+                self.cargar_ots_desde_db()
+        except Exception:
+            pass
 
     def crear_planilla_izquierda(self):
         self.frame_izq = ctk.CTkFrame(self, fg_color="#FAFAFA", corner_radius=8, border_width=1, border_color="#D0D0D0")
@@ -100,6 +79,13 @@ class OTsFrame(ctk.CTkFrame):
         self.combo_filtro = ctk.CTkComboBox(header, values=["Todos"] + estados_permitidos,
                 variable=self.filtro_var, command=self.actualizar_tabla, width=220)
         self.combo_filtro.pack(side="left", padx=20)
+
+        # Botón de recarga (Actualizar)
+        try:
+            self.btn_actualizar = ctk.CTkButton(header, text="Actualizar", width=110, command=self.cargar_ots_desde_db)
+            self.btn_actualizar.pack(side="left", padx=6)
+        except Exception:
+            self.btn_actualizar = None
 
         self.entry_busqueda = ctk.CTkEntry(header, placeholder_text="🔍 Buscar...", width=300)
         self.entry_busqueda.pack(side="right")
@@ -197,14 +183,6 @@ class OTsFrame(ctk.CTkFrame):
 
         self.crear_separador()
 
-        header_ab = ctk.CTkFrame(self.frame_det, fg_color="transparent")
-        header_ab.pack(fill="x", padx=10)
-        ctk.CTkLabel(header_ab, text="PAGOS REALIZADOS", font=("Arial", 12, "bold")).pack(side="left")
-        # Botón de registro de abonos retirado para vendedores
-
-        self.container_historial = ctk.CTkFrame(self.frame_det, fg_color="#F0F0F0", corner_radius=5)
-        self.container_historial.pack(fill="x", padx=10, pady=10)
-
         self.lbl_total = self.crear_total("PRECIO TOTAL:")
         self.lbl_abonado = self.crear_total("ABONADO:")
         self.lbl_saldo = self.crear_total("SALDO:", color="#E74C3C")
@@ -223,10 +201,10 @@ class OTsFrame(ctk.CTkFrame):
 
     def crear_dato(self, titulo):
         f = ctk.CTkFrame(self.info_container, fg_color="transparent")
-        f.pack(fill="x", pady=4, padx=6)
-        ctk.CTkLabel(f, text=titulo, font=("Segoe UI", 11, "bold"), width=110, anchor="w").pack(side="left")
-        l = ctk.CTkLabel(f, text="---", font=("Segoe UI", 11), wraplength=260, anchor="w")
-        l.pack(side="left", padx=(6,0))
+        f.pack(fill="x", pady=2)
+        ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
+        l = ctk.CTkLabel(f, text="---", font=("Arial", 11))
+        l.pack(side="left")
         return l
 
     def crear_total(self, titulo, color=None):
@@ -259,7 +237,15 @@ class OTsFrame(ctk.CTkFrame):
 
             if (filtro == "Todos" or estado_norm == filtro) and \
                (busq in cliente_text or busq in ot_text or busq in descripcion_text):
-                abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+                # Preferir el campo 'sena' proveniente de la BD; si no existe, fallback a suma de pagos
+                sena_val = d.get('sena', None)
+                if sena_val is None:
+                    abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+                else:
+                    try:
+                        abono = float(sena_val)
+                    except Exception:
+                        abono = sum(p.get('m', 0) for p in d.get('pagos', []))
                 tag = estado_norm.lower().replace(' ', '_')
                 # Insert normalized estado text in last column
                 self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("cliente"), d.get("descripcion"), f"{d.get('monto', 0):,} Gs.", f"{abono:,} Gs.", d.get("pago"), estado_norm), tags=(tag,))
@@ -318,31 +304,57 @@ class OTsFrame(ctk.CTkFrame):
         else:
             self.lbl_envio.configure(text_color="#2980B9")
 
-        for w in self.container_historial.winfo_children(): w.destroy()
-        abono = sum(p['m'] for p in d['pagos'])
-        for p in d['pagos']:
-            f = ctk.CTkFrame(self.container_historial, fg_color="white")
-            f.pack(fill="x", pady=2, padx=5)
-            ctk.CTkLabel(f, text=f"📅 {p['f']}", font=("Arial", 10)).pack(side="left", padx=10)
-            ctk.CTkLabel(f, text=f"{p['m']:,} Gs.", font=("Arial", 10, "bold")).pack(side="right", padx=10)
+        # Totales: preferir campo 'sena' si está disponible
+        sena_val = d.get('sena', None)
+        if sena_val is None:
+            abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+        else:
+            try:
+                abono = float(sena_val)
+            except Exception:
+                abono = sum(p.get('m', 0) for p in d.get('pagos', []))
 
-        self.lbl_total.configure(text=f"{d['monto']:,} Gs.")
+        self.lbl_total.configure(text=f"{d.get('monto',0):,} Gs.")
         self.lbl_abonado.configure(text=f"{abono:,} Gs.")
-        self.lbl_saldo.configure(text=f"{d['monto'] - abono:,} Gs.")
+        self.lbl_saldo.configure(text=f"{d.get('monto',0) - abono:,} Gs.")
 
-        # Botones: entregar cuando está Aprobado; finalizar cuando está Entregado
-        if hasattr(self, 'btn_entregar') and self.btn_entregar:
+    def cargar_ots_desde_db(self):
+        """Recargar OTs desde el servicio y mapear campos (incluye `sena`)."""
+        if not get_work_orders_by_vendedor or not self.vendedor:
+            return
+        try:
+            ok, data = get_work_orders_by_vendedor(self.vendedor)
+        except Exception:
+            return
+        if not ok or not isinstance(data, list):
+            return
+        mapped = []
+        for row in data:
             try:
-                self.btn_entregar.configure(state="normal" if estado_actual == "Aprobado" else "disabled",
-                        fg_color="#F39C12" if estado_actual == "Aprobado" else "gray")
+                ot_nro = row.get('ot_nro')
+                fecha = row.get('fecha_creacion')
+                fecha_str = fecha if isinstance(fecha, str) else (fecha.strftime('%d/%m/%Y') if fecha else '')
+                cliente = row.get('cliente_ci_ruc') or ''
+                descripcion = row.get('descripcion') or ''
+                monto = row.get('valor_total') or 0
+                forma_pago = row.get('forma_pago') or ''
+                estado = normalize_estado(row.get('status'))
+                envio = 'Con Envío' if row.get('solicita_envio') else 'Sin Envío (Retira)'
+                pagos = row.get('pagos') or []
+                sena = row.get('sena', 0) or 0
+                mapped.append({
+                    'ot': str(ot_nro), 'fecha': fecha_str, 'vendedor': row.get('vendedor') or '',
+                    'cliente': cliente, 'descripcion': descripcion, 'monto': float(monto) if monto is not None else 0,
+                    'pagos': pagos, 'pago': forma_pago, 'estado': estado, 'envio': envio, 'sena': sena
+                })
             except Exception:
-                pass
-        if hasattr(self, 'btn_finalizar') and self.btn_finalizar:
-            try:
-                self.btn_finalizar.configure(state="normal" if estado_actual == "Entregado" else "disabled",
-                         fg_color="#27AE60" if estado_actual == "Entregado" else "gray")
-            except Exception:
-                pass
+                continue
+        # Orden defensiva: el servicio ya ordena por ot_nro desc, pero asegurar en la UI
+        try:
+            self.datos_ots = sorted(mapped, key=lambda x: int(x['ot']) if str(x.get('ot')).isdigit() else 0, reverse=True)
+        except Exception:
+            self.datos_ots = mapped
+        self.actualizar_tabla()
 
     def abrir_ventana_pago(self):
         # Vendedores no pueden abrir modal de pago
