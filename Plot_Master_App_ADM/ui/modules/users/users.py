@@ -41,12 +41,16 @@ class ModuloAccesos(ctk.CTkFrame):
         cont_tabla = ctk.CTkFrame(self.frame_izq, fg_color="transparent")
         cont_tabla.pack(expand=True, fill="both", padx=15, pady=5)
 
-        columnas = ("id", "created_at", "nombre", "ci_ruc", "telefono", "email", "zona")
+        columnas = ("id", "fecha_registro", "nombre", "ci_ruc", "telefono", "email", "zona")
         self.tabla = ttk.Treeview(cont_tabla, columns=columnas, show="headings")
 
-        anchos = {"id": 60, "created_at": 140, "nombre": 220, "ci_ruc": 120, "telefono": 110, "email": 180, "zona": 100}
+        anchos = {"id": 60, "fecha_registro": 140, "nombre": 220, "ci_ruc": 120, "telefono": 110, "email": 180, "zona": 100}
         for col in columnas:
-            self.tabla.heading(col, text=col.upper())
+            # Mostrar etiqueta legible para la columna de fecha
+            if col == 'fecha_registro':
+                self.tabla.heading(col, text="Fecha-Registro")
+            else:
+                self.tabla.heading(col, text=col.upper())
             self.tabla.column(col, width=anchos.get(col, 100), anchor="center")
 
         vsb = ttk.Scrollbar(cont_tabla, orient="vertical", command=self.tabla.yview)
@@ -94,7 +98,7 @@ class ModuloAccesos(ctk.CTkFrame):
             nombre = (u.get('nombre') or "").lower()
             ci_ruc = (u.get('ci_ruc') or "").lower()
             if busq in nombre or busq in ci_ruc:
-                created = u.get('created_at') or u.get('created') or ""
+                created = u.get('fecha_registro') or u.get('created_at') or u.get('created') or ""
                 if created:
                     try:
                         # Presentar fecha legible si es ISO

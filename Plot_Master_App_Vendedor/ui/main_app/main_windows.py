@@ -129,10 +129,13 @@ class OrdenesFrame(ctk.CTkFrame):
 # ==========================================================================
 
 class MainAppFrame(ctk.CTkFrame):
-    def __init__(self, parent, user_name: str = None):
+    def __init__(self, parent, user_name: str = None, user_ci: str = None):
         super().__init__(parent, fg_color="transparent")
         self.parent = parent
         self.user_name = user_name or "Usuario"
+        # `user_ci` contiene el CI/RUC del usuario autenticado y se usa
+        # para resolver `vendedor` en vistas que consultan por vendedor.
+        self.user_ci = user_ci or None
 
         # Make this frame expand to fill parent and set column weights
         self.grid(row=0, column=0, sticky="nsew")
@@ -243,13 +246,13 @@ class MainAppFrame(ctk.CTkFrame):
 
     def _show_ordenes(self):
         self._clear_central()
-        crear_modulo_ot_embedded(parent=self.central_container, vendedor=self.user_name)
+        crear_modulo_ot_embedded(parent=self.central_container, vendedor=self.user_ci or self.user_name)
 
     def _show_ordenes_list(self):
         self._clear_central()
         from ..modules.work_orders_list.ot_registration_list import ModuloOTs
         self.central_container.grid_columnconfigure(0, weight=1)
-        ordenes_list_frame = ModuloOTs(self.central_container, vendedor=self.user_name)
+        ordenes_list_frame = ModuloOTs(self.central_container, vendedor=self.user_ci or self.user_name)
         ordenes_list_frame.grid(row=0, column=0, sticky="nsew")
 
     def select_frame_by_name(self, name):
@@ -291,5 +294,5 @@ if __name__ == "__main__":
     root.grid_rowconfigure(0, weight=1)
 
     # Instanciar la aplicación principal dentro del root
-    main_app = MainAppFrame(root, user_name="Demo")
+    main_app = MainAppFrame(root, user_name="Demo", user_ci="Demo")
     root.mainloop()

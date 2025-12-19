@@ -237,15 +237,21 @@ class OTsFrame(ctk.CTkFrame):
 
             if (filtro == "Todos" or estado_norm == filtro) and \
                (busq in cliente_text or busq in ot_text or busq in descripcion_text):
-                # Preferir el campo 'sena' proveniente de la BD; si no existe, fallback a suma de pagos
-                sena_val = d.get('sena', None)
-                if sena_val is None:
-                    abono = sum(p.get('m', 0) for p in d.get('pagos', []))
-                else:
+                # Preferir el campo 'abonado_total' (nuevo esquema). Fallback: 'sena' o suma de pagos
+                if d.get('abonado_total') is not None:
                     try:
-                        abono = float(sena_val)
+                        abono = float(d.get('abonado_total') or 0)
                     except Exception:
                         abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+                else:
+                    sena_val = d.get('sena', None)
+                    if sena_val is None:
+                        abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+                    else:
+                        try:
+                            abono = float(sena_val)
+                        except Exception:
+                            abono = sum(p.get('m', 0) for p in d.get('pagos', []))
                 tag = estado_norm.lower().replace(' ', '_')
                 # Insert normalized estado text in last column
                 self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("cliente"), d.get("descripcion"), f"{d.get('monto', 0):,} Gs.", f"{abono:,} Gs.", d.get("pago"), estado_norm), tags=(tag,))
@@ -304,15 +310,21 @@ class OTsFrame(ctk.CTkFrame):
         else:
             self.lbl_envio.configure(text_color="#2980B9")
 
-        # Totales: preferir campo 'sena' si está disponible
-        sena_val = d.get('sena', None)
-        if sena_val is None:
-            abono = sum(p.get('m', 0) for p in d.get('pagos', []))
-        else:
+        # Totales: preferir campo 'abonado_total' (nuevo esquema). Fallback: 'sena' o suma de pagos
+        if d.get('abonado_total') is not None:
             try:
-                abono = float(sena_val)
+                abono = float(d.get('abonado_total') or 0)
             except Exception:
                 abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+        else:
+            sena_val = d.get('sena', None)
+            if sena_val is None:
+                abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+            else:
+                try:
+                    abono = float(sena_val)
+                except Exception:
+                    abono = sum(p.get('m', 0) for p in d.get('pagos', []))
 
         self.lbl_total.configure(text=f"{d.get('monto',0):,} Gs.")
         self.lbl_abonado.configure(text=f"{abono:,} Gs.")
@@ -334,7 +346,7 @@ class OTsFrame(ctk.CTkFrame):
                 ot_nro = row.get('ot_nro')
                 fecha = row.get('fecha_creacion')
                 fecha_str = fecha if isinstance(fecha, str) else (fecha.strftime('%d/%m/%Y') if fecha else '')
-                cliente = row.get('cliente_ci_ruc') or ''
+                cliente = row.get('cliente') or row.get('cliente_ci_ruc') or ''
                 descripcion = row.get('descripcion') or ''
                 monto = row.get('valor_total') or 0
                 forma_pago = row.get('forma_pago') or ''
@@ -342,10 +354,11 @@ class OTsFrame(ctk.CTkFrame):
                 envio = 'Con Envío' if row.get('solicita_envio') else 'Sin Envío (Retira)'
                 pagos = row.get('pagos') or []
                 sena = row.get('sena', 0) or 0
+                abonado_total = row.get('abonado_total', 0) or 0
                 mapped.append({
                     'ot': str(ot_nro), 'fecha': fecha_str, 'vendedor': row.get('vendedor') or '',
                     'cliente': cliente, 'descripcion': descripcion, 'monto': float(monto) if monto is not None else 0,
-                    'pagos': pagos, 'pago': forma_pago, 'estado': estado, 'envio': envio, 'sena': sena
+                    'pagos': pagos, 'pago': forma_pago, 'estado': estado, 'envio': envio, 'sena': sena, 'abonado_total': abonado_total
                 })
             except Exception:
                 continue

@@ -297,7 +297,7 @@ class OTForm(ctk.CTkFrame):
         ctk.CTkLabel(order_box, text="Fecha:").grid(row=1, column=2, sticky="w", padx=15, pady=(15,5))
         ctk.CTkLabel(order_box, textvariable=self.fecha_var).grid(row=1, column=3, sticky="w", padx=5, pady=(15,5))
 
-        ctk.CTkLabel(order_box, text="Técnico/Vendedor:").grid(row=2, column=0, sticky="w", padx=15, pady=5)
+        ctk.CTkLabel(order_box, text="Vendedor:").grid(row=2, column=0, sticky="w", padx=15, pady=5)
         ctk.CTkLabel(order_box, text=self.vendedor or "No Asignado", text_color="#2980b9", font=ctk.CTkFont(weight="bold")).grid(row=2, column=1, sticky="w", padx=5, pady=5)
 
 

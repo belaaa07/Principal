@@ -19,7 +19,9 @@ def main():
         login_frame.destroy()
 
         # Crear la aplicación principal dentro del mismo root
-        main_app = MainAppFrame(root, user_name=nombre)
+        # Pasar tanto el nombre como el CI/RUC (user_ci) para que los módulos
+        # puedan identificar al vendedor según el esquema nuevo (vendedor_id / ci_ruc).
+        main_app = MainAppFrame(root, user_name=nombre, user_ci=ci)
         # No reasignar el botón 'Órdenes' aquí; la navegación mostrará el módulo
 
     # Centrar y mostrar el login

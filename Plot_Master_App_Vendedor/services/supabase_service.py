@@ -86,6 +86,40 @@ def find_client_by_ci_ruc(ci_ruc: str):
         print(f"Error al buscar cliente: {e}")
         return None
 
+
+def get_client_id_by_ci_ruc(ci_ruc: str):
+    if not supabase: return None
+    try:
+        resp = supabase.table('clientes').select('id').eq('ci_ruc', ci_ruc).limit(1).execute()
+        if resp.data:
+            return resp.data[0].get('id')
+        return None
+    except Exception as e:
+        print(f"Error al obtener id de cliente: {e}")
+        return None
+
+
+def get_users_by_ids(ids: list):
+    if not supabase or not ids: return {}
+    try:
+        resp = supabase.table('usuarios').select('*').in_('id', ids).execute()
+        rows = resp.data or []
+        return {r.get('id'): r for r in rows}
+    except Exception as e:
+        print(f"Error al obtener usuarios por ids: {e}")
+        return {}
+
+
+def get_clients_by_ids(ids: list):
+    if not supabase or not ids: return {}
+    try:
+        resp = supabase.table('clientes').select('*').in_('id', ids).execute()
+        rows = resp.data or []
+        return {r.get('id'): r for r in rows}
+    except Exception as e:
+        print(f"Error al obtener clientes por ids: {e}")
+        return {}
+
 def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str, email: str = None):
     """Inserta un nuevo cliente en la base de datos."""
     if not supabase: return False, "No hay conexión con la base de datos."
@@ -133,19 +167,59 @@ def insert_work_order(ot_data: dict):
         payload = {
             'ot_nro': ot_data['ot_nro'],
             'fecha_creacion': ot_data['fecha'],
-            'cliente_ci_ruc': ot_data['ci_ruc'],
             'valor_total': ot_data['valor'],
-            'sena': ot_data['sena'],
-            'forma_pago': ot_data['forma_pago'],
-            'solicita_envio': ot_data['envio_status'],
+            'sena': ot_data.get('sena', 0),
+            'forma_pago': ot_data.get('forma_pago'),
+            'solicita_envio': ot_data.get('envio_status', False),
             'status': status_norm
         }
+        # Resolver cliente_id desde ci_ruc si viene
+        ci = ot_data.get('ci_ruc')
+        if ci:
+            cid = get_client_id_by_ci_ruc(ci)
+            if cid is None:
+                return False, f"Cliente con CI/RUC {ci} no encontrado."
+            payload['cliente_id'] = cid
         # Añadir descripción si viene (campo nuevo en esquema)
         if 'descripcion' in ot_data:
             payload['descripcion'] = ot_data['descripcion']
         # Añadir vendedor si se provee en ot_data
+        # Resolver vendedor a `vendedor_id` si se provee (puede ser id, ci_ruc o nombre)
         if 'vendedor' in ot_data and ot_data['vendedor']:
-            payload['vendedor'] = ot_data['vendedor']
+            v = ot_data['vendedor']
+            vendedor_id = None
+            # Preferir resolver por CI/RUC (aunque sea numérico), luego por id, y finalmente por nombre
+            try:
+                resp_by_ci = supabase.table('usuarios').select('id').eq('ci_ruc', str(v)).limit(1).execute()
+                if resp_by_ci.data:
+                    vendedor_id = resp_by_ci.data[0].get('id')
+            except Exception:
+                vendedor_id = None
+
+            # Si no se resolvió por CI, intentar si el valor es un id numérico
+            if vendedor_id is None:
+                try:
+                    maybe_id = int(v)
+                    resp_by_id = supabase.table('usuarios').select('id').eq('id', maybe_id).limit(1).execute()
+                    if resp_by_id.data:
+                        vendedor_id = resp_by_id.data[0].get('id')
+                except Exception:
+                    vendedor_id = vendedor_id
+
+            # Finalmente intentar por nombre exacto
+            if vendedor_id is None:
+                try:
+                    resp_by_name = supabase.table('usuarios').select('id').eq('nombre', str(v)).limit(1).execute()
+                    if resp_by_name.data:
+                        vendedor_id = resp_by_name.data[0].get('id')
+                except Exception:
+                    vendedor_id = None
+
+            if vendedor_id is None:
+                return False, f"Vendedor '{v}' no encontrado. Proporcione id, CI/RUC o nombre válido."
+            payload['vendedor_id'] = vendedor_id
+        else:
+            return False, "La orden debe incluir un 'vendedor' (id, CI/RUC o nombre)."
 
         response = supabase.table('ordenes_trabajo').insert(payload).execute()
         if hasattr(response, 'error') and response.error:
@@ -232,10 +306,20 @@ def get_all_work_orders():
 
     try:
         response = supabase.table('ordenes_trabajo').select('*').order('ot_nro', desc=True).execute()
-        if response.data:
-            return True, response.data
-        else:
-            return True, []
+        data = response.data or []
+        cliente_ids = list({d.get('cliente_id') for d in data if d.get('cliente_id')})
+        vendedor_ids = list({d.get('vendedor_id') for d in data if d.get('vendedor_id')})
+        clientes = get_clients_by_ids(cliente_ids)
+        usuarios = get_users_by_ids(vendedor_ids)
+        out = []
+        for d in data:
+            cid = d.get('cliente_id')
+            vid = d.get('vendedor_id')
+            d['cliente'] = clientes.get(cid, {}).get('ci_ruc') or clientes.get(cid, {}).get('nombre') or ''
+            d['vendedor'] = usuarios.get(vid, {}).get('nombre') or usuarios.get(vid, {}).get('ci_ruc') or ''
+            d['abonado_total'] = d.get('abonado_total', 0) or 0
+            out.append(d)
+        return True, out
     except Exception as e:
         print(f"Error al obtener las órdenes de trabajo: {e}")
         return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
@@ -246,44 +330,75 @@ def get_work_orders_by_vendedor(vendedor: str):
     if not supabase:
         return False, "No hay conexión con la base de datos."
     try:
-        response = supabase.table('ordenes_trabajo').select('*').eq('vendedor', vendedor).order('ot_nro', desc=True).execute()
-        if response.data:
-            return True, response.data
-        return True, []
+        # Resolver vendedor: preferir buscar por ci_ruc, luego por id
+        vendedor_id = None
+        try:
+            resp_ci = supabase.table('usuarios').select('id').eq('ci_ruc', str(vendedor)).limit(1).execute()
+            if resp_ci.data:
+                vendedor_id = resp_ci.data[0].get('id')
+        except Exception:
+            vendedor_id = None
+        if vendedor_id is None:
+            try:
+                maybe_id = int(vendedor)
+                resp_id = supabase.table('usuarios').select('id').eq('id', maybe_id).limit(1).execute()
+                if resp_id.data:
+                    vendedor_id = resp_id.data[0].get('id')
+            except Exception:
+                vendedor_id = None
+        if vendedor_id is None:
+            return True, []
+        response = supabase.table('ordenes_trabajo').select('*').eq('vendedor_id', vendedor_id).order('ot_nro', desc=True).execute()
+        data = response.data or []
+        for d in data:
+            d['abonado_total'] = d.get('abonado_total', 0) or 0
+        return True, data
+    except Exception as e:
+        print(f"Error al obtener las órdenes de trabajo por vendedor: {e}")
+        return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
     except Exception as e:
         print(f"Error al obtener las órdenes de trabajo por vendedor: {e}")
         return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
 
 
 def add_sena_to_order(ot_nro, amount):
-    """Suma `amount` al campo `sena` de la orden identificada por `ot_nro`.
+    """Registra un abono en la tabla `abonos` y actualiza `ordenes_trabajo.abonado_total`.
     Retorna (True, mensaje) o (False, mensaje).
     """
+    # Registrar abono en tabla `abonos` y actualizar `abonado_total`
     if not supabase:
         return False, "No hay conexión con la base de datos."
     try:
-        resp = supabase.table('ordenes_trabajo').select('sena').eq('ot_nro', ot_nro).limit(1).execute()
+        resp = supabase.table('ordenes_trabajo').select('id, abonado_total').eq('ot_nro', ot_nro).limit(1).execute()
         if not getattr(resp, 'data', None):
-            return False, "Orden no encontrada para actualizar 'sena'."
-        cur = resp.data[0].get('sena') or 0
-        try:
-            cur_val = float(cur)
-        except Exception:
-            cur_val = 0
+            return False, "Orden no encontrada para registrar abono."
+        row = resp.data[0]
         try:
             add_val = float(amount)
         except Exception:
-            return False, "Monto inválido para agregar a 'sena'."
-        nuevo = cur_val + add_val
-        upd = supabase.table('ordenes_trabajo').update({'sena': nuevo}).eq('ot_nro', ot_nro).execute()
+            return False, "Monto inválido para abono."
+        ot_id = row.get('id')
+        cur_ab = float(row.get('abonado_total') or 0)
+        try:
+            ins = supabase.table('abonos').insert({'ot_id': ot_id, 'monto': add_val}).execute()
+            if hasattr(ins, 'error') and ins.error:
+                return False, str(ins.error)
+        except Exception as e:
+            print(f"Error al insertar abono: {e}")
+            return False, f"Error al insertar abono: {e}"
+        nuevo = cur_ab + add_val
+        upd = supabase.table('ordenes_trabajo').update({'abonado_total': nuevo}).eq('id', ot_id).execute()
         if hasattr(upd, 'error') and upd.error:
             return False, str(upd.error)
-        if not getattr(upd, 'data', None):
-            return False, "No se actualizó la orden (posible problema de permisos)."
-        return True, f"Sena actualizada a {nuevo}"
+        # Autorizar automáticamente la orden al registrar abono: marcar como 'Aprobado'
+        try:
+            supabase.table('ordenes_trabajo').update({'status': 'Aprobado'}).eq('id', ot_id).execute()
+        except Exception:
+            pass
+        return True, f"Abono registrado. Abonado total: {nuevo}"
     except Exception as e:
-        print(f"Error al agregar sena a OT {ot_nro}: {e}")
-        return False, f"Error al actualizar sena: {e}"
+        print(f"Error al registrar abono OT {ot_nro}: {e}")
+        return False, f"Error al registrar abono: {e}"
 
 
 def update_work_order_status(ot_nro, new_status: str):

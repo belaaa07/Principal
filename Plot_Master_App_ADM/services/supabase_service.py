@@ -86,6 +86,43 @@ def find_client_by_ci_ruc(ci_ruc: str):
         print(f"Error al buscar cliente: {e}")
         return None
 
+
+def get_client_id_by_ci_ruc(ci_ruc: str):
+    """Devuelve el `id` del cliente dado su `ci_ruc` o None."""
+    if not supabase: return None
+    try:
+        resp = supabase.table('clientes').select('id').eq('ci_ruc', ci_ruc).limit(1).execute()
+        if resp.data:
+            return resp.data[0].get('id')
+        return None
+    except Exception as e:
+        print(f"Error al obtener id de cliente: {e}")
+        return None
+
+
+def get_clients_by_ids(ids: list):
+    """Devuelve un dict id->cliente_row para los ids provistos."""
+    if not supabase or not ids: return {}
+    try:
+        resp = supabase.table('clientes').select('*').in_('id', ids).execute()
+        rows = resp.data or []
+        return {r.get('id'): r for r in rows}
+    except Exception as e:
+        print(f"Error al obtener clientes por ids: {e}")
+        return {}
+
+
+def get_users_by_ids(ids: list):
+    """Devuelve un dict id->usuario_row para los ids provistos (tabla usuarios)."""
+    if not supabase or not ids: return {}
+    try:
+        resp = supabase.table('usuarios').select('*').in_('id', ids).execute()
+        rows = resp.data or []
+        return {r.get('id'): r for r in rows}
+    except Exception as e:
+        print(f"Error al obtener usuarios por ids: {e}")
+        return {}
+
 def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str, email: str = None):
     """Inserta un nuevo cliente en la base de datos."""
     if not supabase: return False, "No hay conexión con la base de datos."
@@ -229,7 +266,29 @@ def get_all_work_orders():
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
         response = supabase.table('ordenes_trabajo').select('*').order('ot_nro', desc=True).execute()
-        return True, (response.data or [])
+        data = response.data or []
+        # Enriquecer con nombres de cliente y vendedor (si vienen ids)
+        cliente_ids = list({d.get('cliente_id') for d in data if d.get('cliente_id')})
+        vendedor_ids = list({d.get('vendedor_id') for d in data if d.get('vendedor_id')})
+        clientes = get_clients_by_ids(cliente_ids)
+        usuarios = get_users_by_ids(vendedor_ids)
+        out = []
+        for d in data:
+            # Mantener compatibilidad con UI: campos `cliente` y `vendedor` como texto
+            cliente_txt = ''
+            vendedor_txt = ''
+            cid = d.get('cliente_id')
+            vid = d.get('vendedor_id')
+            if cid and clientes.get(cid):
+                cliente_txt = clientes[cid].get('ci_ruc') or clientes[cid].get('nombre') or ''
+            if vid and usuarios.get(vid):
+                vendedor_txt = usuarios[vid].get('nombre') or usuarios[vid].get('ci_ruc') or ''
+            # Exponer abonado_total para UI
+            d['abonado_total'] = d.get('abonado_total', 0) or 0
+            d['cliente'] = cliente_txt
+            d['vendedor'] = vendedor_txt
+            out.append(d)
+        return True, out
     except Exception as e:
         print(f"Error al obtener las órdenes de trabajo: {e}")
         return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
@@ -239,7 +298,27 @@ def get_work_order_by_ot(ot_nro):
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
         response = supabase.table('ordenes_trabajo').select('*').eq('ot_nro', ot_nro).limit(1).execute()
-        return True, (response.data[0] if response.data else None)
+        row = (response.data[0] if response.data else None)
+        if not row:
+            return True, None
+        # Obtener historial de abonos
+        ot_id = row.get('id')
+        pagos = []
+        try:
+            resp_ab = supabase.table('abonos').select('monto,fecha_abono,creado_por,observacion').eq('ot_id', ot_id).order('fecha_abono', desc=True).execute()
+            for p in (resp_ab.data or []):
+                pagos.append({
+                    'm': float(p.get('monto') or 0),
+                    'f': (p.get('fecha_abono') or '').split('T')[0],
+                    'creado_por': p.get('creado_por'),
+                    'observacion': p.get('observacion')
+                })
+        except Exception:
+            pagos = []
+        row['pagos'] = pagos
+        # Asegurar abonado_total existe
+        row['abonado_total'] = row.get('abonado_total', 0) or 0
+        return True, row
     except Exception as e:
         print(f"Error al obtener OT: {e}")
         return False, f"Error inesperado al obtener la OT: {e}"
@@ -260,35 +339,47 @@ def update_work_order_status(ot_nro, status):
 
 
 def add_sena_to_order(ot_nro, amount):
-    """Suma `amount` al campo `sena` de la orden identificada por `ot_nro`.
+    """Registra un abono en la tabla `abonos` y actualiza `ordenes_trabajo.abonado_total`.
     Retorna (True, mensaje) o (False, mensaje).
     """
+    # Nuevo comportamiento: registrar un abono en la tabla `abonos` y actualizar `abonado_total`
     if not supabase:
         return False, "No hay conexión con la base de datos."
     try:
-        # Obtener valor actual
-        resp = supabase.table('ordenes_trabajo').select('sena').eq('ot_nro', ot_nro).limit(1).execute()
+        resp = supabase.table('ordenes_trabajo').select('id, abonado_total').eq('ot_nro', ot_nro).limit(1).execute()
         if not getattr(resp, 'data', None):
-            return False, "Orden no encontrada para actualizar 'sena'."
-        cur = resp.data[0].get('sena') or 0
-        try:
-            cur_val = float(cur)
-        except Exception:
-            cur_val = 0
+            return False, "Orden no encontrada para registrar abono."
+        row = resp.data[0]
         try:
             add_val = float(amount)
         except Exception:
-            return False, "Monto inválido para agregar a 'sena'."
-        nuevo = cur_val + add_val
-        upd = supabase.table('ordenes_trabajo').update({'sena': nuevo}).eq('ot_nro', ot_nro).execute()
+            return False, "Monto inválido para abono."
+        ot_id = row.get('id')
+        cur_ab = float(row.get('abonado_total') or 0)
+        # Insertar registro en abonos (creado_por queda null si no hay contexto)
+        try:
+            ins = supabase.table('abonos').insert({
+                'ot_id': ot_id,
+                'monto': add_val
+            }).execute()
+            if hasattr(ins, 'error') and ins.error:
+                return False, str(ins.error)
+        except Exception as e:
+            print(f"Error al insertar abono: {e}")
+            return False, f"Error al insertar abono: {e}"
+        nuevo = cur_ab + add_val
+        upd = supabase.table('ordenes_trabajo').update({'abonado_total': nuevo}).eq('id', ot_id).execute()
         if hasattr(upd, 'error') and upd.error:
             return False, str(upd.error)
-        if not getattr(upd, 'data', None):
-            return False, "No se actualizó la orden (posible problema de permisos)."
-        return True, f"Sena actualizada a {nuevo}"
+        # Autorizar automáticamente la orden al registrar abono: marcar como 'Aprobado'
+        try:
+            supabase.table('ordenes_trabajo').update({'status': 'Aprobado'}).eq('id', ot_id).execute()
+        except Exception:
+            pass
+        return True, f"Abono registrado. Abonado total: {nuevo}"
     except Exception as e:
-        print(f"Error al agregar sena a OT {ot_nro}: {e}")
-        return False, f"Error al actualizar sena: {e}"
+        print(f"Error al registrar abono OT {ot_nro}: {e}")
+        return False, f"Error al registrar abono: {e}"
 
 
 def update_work_order_value(ot_nro, valor_total):
@@ -334,7 +425,8 @@ def get_all_users():
     """Devuelve todos los usuarios (vendedores) desde la tabla 'usuarios'."""
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
-        response = supabase.table('usuarios').select('*').order('created_at', desc=True).execute()
+        # La columna de fecha en `usuarios` es `fecha_registro` según el nuevo esquema
+        response = supabase.table('usuarios').select('*').order('fecha_registro', desc=True).execute()
         return True, (response.data or [])
     except Exception as e:
         print(f"Error al obtener usuarios: {e}")
@@ -421,8 +513,17 @@ def get_work_orders_by_client(ci_ruc: str):
     import time
     for attempt in range(2):
         try:
-            response = supabase.table('ordenes_trabajo').select('ot_nro, fecha_creacion, status').eq('cliente_ci_ruc', ci_ruc).order('fecha_creacion', desc=True).execute()
-            return True, (response.data or [])
+                # Resolver cliente id y filtrar por cliente_id
+                cid = get_client_id_by_ci_ruc(ci_ruc)
+                if cid is None:
+                    return True, []
+                response = supabase.table('ordenes_trabajo').select('*').eq('cliente_id', cid).order('fecha_creacion', desc=True).execute()
+                data = response.data or []
+                # Añadir campo cliente textual
+                for d in data:
+                    d['cliente'] = ci_ruc
+                    d['abonado_total'] = d.get('abonado_total', 0) or 0
+                return True, data
         except Exception as e:
             err_str = str(e)
             print(f"Error al obtener OTs por cliente (attempt {attempt+1}): {err_str}")

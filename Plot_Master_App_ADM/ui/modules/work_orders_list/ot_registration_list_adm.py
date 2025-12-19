@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 from services.supabase_service import (
     get_all_work_orders,
+    get_work_order_by_ot,
     update_work_order_status,
     update_work_order_value,
     add_sena_to_order,
@@ -129,11 +130,12 @@ class ModuloOTs(ctk.CTkFrame):
                 'ot': str(r.get('ot_nro') or r.get('ot') or ''),
                 'fecha': (r.get('fecha_creacion') or r.get('created_at') or '').split('T')[0] if r.get('fecha_creacion') or r.get('created_at') else '',
                 'vendedor': r.get('vendedor') or '',
-                'cliente': r.get('cliente_ci_ruc') or r.get('ci_ruc') or '',
+                'cliente': r.get('cliente') or r.get('cliente_ci_ruc') or r.get('ci_ruc') or '',
                 'descripcion': r.get('descripcion') or '',
                 'monto': int(r.get('valor_total') or 0),
                 'pagos': r.get('pagos') or [],
                 'sena': r.get('sena', 0) or 0,
+                'abonado_total': r.get('abonado_total', 0) or 0,
                 'pago': r.get('forma_pago') or '',
                 'estado': r.get('status') or '',
                 'envio': 'Con Envío' if r.get('solicita_envio') else 'Sin Envío',
@@ -179,6 +181,9 @@ class ModuloOTs(ctk.CTkFrame):
         header_ab = ctk.CTkFrame(self.frame_det, fg_color="transparent")
         header_ab.pack(fill="x", padx=10)
         ctk.CTkLabel(header_ab, text="PAGOS REALIZADOS", font=("Arial", 12, "bold")).pack(side="left")
+        # Botón para refrescar historial de pagos manualmente
+        self.btn_refresh_pagos = ctk.CTkButton(header_ab, text="🔁", width=35, height=28, command=self.refrescar_pagos)
+        self.btn_refresh_pagos.pack(side="right", padx=(6,0))
         self.btn_mas_pago = ctk.CTkButton(header_ab, text="+", width=35, height=28, command=self.abrir_ventana_pago)
         self.btn_mas_pago.pack(side="right")
 
@@ -230,15 +235,21 @@ class ModuloOTs(ctk.CTkFrame):
             vendedor_lower = (d.get('vendedor') or '').lower()
             if (filtro == "Todos" or d.get("estado") == filtro) and \
                (busq in cliente_lower or busq in str(d.get('ot')) or busq in descripcion_lower or busq in vendedor_lower):
-                # Preferir campo 'sena' si existe
-                sena_val = d.get('sena', None)
-                if sena_val is None:
-                    abono = sum(p.get('m', 0) for p in d.get('pagos', []))
-                else:
+                # Preferir campo 'abonado_total' (nuevo esquema). Fallback: 'sena' o suma de pagos
+                if d.get('abonado_total') is not None:
                     try:
-                        abono = float(sena_val)
+                        abono = float(d.get('abonado_total') or 0)
                     except Exception:
                         abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+                else:
+                    sena_val = d.get('sena', None)
+                    if sena_val is None:
+                        abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+                    else:
+                        try:
+                            abono = float(sena_val)
+                        except Exception:
+                            abono = sum(p.get('m', 0) for p in d.get('pagos', []))
                 tag = (d.get("estado") or '').lower()
                 self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("vendedor"), d.get("cliente"), d.get("descripcion"), f"{d.get('monto'):,} Gs.", f"{abono:,} Gs.", d.get("pago"), d.get("estado")), tags=(tag,))
 
@@ -248,6 +259,14 @@ class ModuloOTs(ctk.CTkFrame):
         id_ot = str(self.tabla.item(sel[0])['values'][0])
         self.ot_seleccionada = next((x for x in self.datos_ots if x["ot"] == id_ot), None)
         if self.ot_seleccionada:
+            # Solicitar detalle completo (incluye historial de abonos)
+            try:
+                ok, detalle = get_work_order_by_ot(self.ot_seleccionada.get('ot'))
+                if ok and detalle:
+                    self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
+                    self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
+            except Exception:
+                pass
             self.refrescar_detalle()
 
     def actualizar_precio_total(self):
@@ -283,8 +302,15 @@ class ModuloOTs(ctk.CTkFrame):
         self.entry_precio_total.insert(0, str(d['monto']))
 
         for w in self.container_historial.winfo_children(): w.destroy()
-        abono = sum(p['m'] for p in d['pagos'])
-        for i, p in enumerate(d['pagos']):
+        # Preferir abonado_total (persistido). Si no hay, usar suma de pagos en memoria
+        if d.get('abonado_total') is not None:
+            try:
+                abono = float(d.get('abonado_total') or 0)
+            except Exception:
+                abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+        else:
+            abono = sum(p.get('m', 0) for p in d.get('pagos', []))
+        for i, p in enumerate(d.get('pagos', [])):
             f = ctk.CTkFrame(self.container_historial, fg_color="white")
             f.pack(fill="x", pady=2, padx=5)
             ctk.CTkLabel(f, text=f"📅 {p['f']}", font=("Arial", 10)).pack(side="left", padx=5)
@@ -355,15 +381,40 @@ class ModuloOTs(ctk.CTkFrame):
         ok, msg = add_sena_to_order(ot_n, m)
         if ok:
             messagebox.showinfo("Abono registrado", msg)
-            # Recargar desde BD para reflejar 'sena' acumulada
+            # Intentar recargar historial de abonos de la OT y refrescar detalle
             try:
-                self.cargar_ots_desde_db()
+                ok_det, detalle = get_work_order_by_ot(ot_n)
+                if ok_det and detalle:
+                    self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
+                    self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
+                else:
+                    # Fallback: añadir en memoria si la consulta falla
+                    self.ot_seleccionada.setdefault('pagos', []).append({"m": m, "f": datetime.now().strftime("%d/%m/%y")})
+                # Refrescar vista y tabla
+                self.refrescar_detalle(); self.actualizar_tabla()
             except Exception:
                 # Fallback: mantener en memoria y actualizar UI
-                self.ot_seleccionada['pagos'].append({"m": m, "f": datetime.now().strftime("%d/%m/%y")})
+                self.ot_seleccionada.setdefault('pagos', []).append({"m": m, "f": datetime.now().strftime("%d/%m/%y")})
                 self.refrescar_detalle(); self.actualizar_tabla()
         else:
             messagebox.showerror("Error al registrar abono", f"No se pudo registrar abono: {msg}")
+
+    def refrescar_pagos(self):
+        """Recarga el historial de pagos para la OT actualmente seleccionada."""
+        if not self.ot_seleccionada:
+            messagebox.showinfo("Info", "Seleccione primero una OT para refrescar sus pagos.")
+            return
+        ot_n = self.ot_seleccionada.get('ot')
+        try:
+            ok_det, detalle = get_work_order_by_ot(ot_n)
+            if ok_det and detalle:
+                self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
+                self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
+                self.refrescar_detalle(); self.actualizar_tabla()
+            else:
+                messagebox.showwarning("Advertencia", "No se pudo obtener el historial de pagos para esta OT.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al refrescar pagos: {e}")
 
     def cambiar_estado(self, nuevo_estado):
         if self.ot_seleccionada:
