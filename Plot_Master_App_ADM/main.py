@@ -13,12 +13,10 @@ def main():
     root.grid_columnconfigure(0, weight=1)
     root.grid_rowconfigure(0, weight=1)
 
-    def on_login_success(ci, nombre):
-        # Remover o esconder el frame de login
+    def on_login_success(admin_info):
         login_frame.destroy()
-
-        # Crear la aplicación principal dentro del mismo root
-        main_app = MainAppFrame(root, user_name=nombre)
+        user_name = (admin_info or {}).get('nombre')
+        main_app = MainAppFrame(root, user_name=user_name, admin_context=admin_info)
         # No reasignar el botón 'Órdenes' aquí; la navegación mostrará el módulo
 
     # Centrar y mostrar el login

@@ -12,12 +12,23 @@ except Exception:
 ctk.set_appearance_mode("light") 
 ctk.set_default_color_theme("blue")
 
+def _to_int_amount(valor):
+    try:
+        return int(round(float(valor or 0)))
+    except Exception:
+        return 0
+
+def _format_gs(valor):
+    return f"{_to_int_amount(valor):,} Gs."
+
 
 def normalize_estado(s):
     # Canonical states order: Pendiente, Aprobado, Entregado, Finalizado
     if not s:
         return 'Pendiente'
     s2 = str(s).strip().lower()
+    if 'cancel' in s2 or 'cancelad' in s2:
+        return 'Cancelado'
     if s2 in ('pendiente', 'pending'):
         return 'Pendiente'
     if 'rechaz' in s2:
@@ -75,7 +86,7 @@ class OTsFrame(ctk.CTkFrame):
         
         # FILTRO DE ESTADO (usar lista canónica)
         self.filtro_var = ctk.StringVar(value="Todos")
-        estados_permitidos = ["Pendiente", "Aprobado", "Rechazado", "Entregado", "Finalizado"]
+        estados_permitidos = ["Pendiente", "Aprobado", "Rechazado", "Entregado", "Finalizado", "Cancelado"]
         self.combo_filtro = ctk.CTkComboBox(header, values=["Todos"] + estados_permitidos,
                 variable=self.filtro_var, command=self.actualizar_tabla, width=220)
         self.combo_filtro.pack(side="left", padx=20)
@@ -124,6 +135,8 @@ class OTsFrame(ctk.CTkFrame):
         self.tabla.tag_configure("entregado", background="#D6F5F0")
         # Finalizado: morado claro (vendedor)
         self.tabla.tag_configure("finalizado", background="#EADBF7")
+        # Cancelado: morado/purpura claro (vendedor)
+        self.tabla.tag_configure("cancelado", background="#F3E8FF")
 
         # Column widths: permitir que el ancho total exceda el contenedor para habilitar scroll horizontal
         anchos = {"ot": 70, "fecha": 90, "cliente": 260, "descripcion": 480, "monto": 110, "abonado": 110, "pago": 100, "estado": 120}
@@ -253,8 +266,10 @@ class OTsFrame(ctk.CTkFrame):
                         except Exception:
                             abono = sum(p.get('m', 0) for p in d.get('pagos', []))
                 tag = estado_norm.lower().replace(' ', '_')
+                monto_str = _format_gs(d.get('monto', 0))
+                abono_str = _format_gs(abono)
                 # Insert normalized estado text in last column
-                self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("cliente"), d.get("descripcion"), f"{d.get('monto', 0):,} Gs.", f"{abono:,} Gs.", d.get("pago"), estado_norm), tags=(tag,))
+                self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("cliente"), d.get("descripcion"), monto_str, abono_str, d.get("pago"), estado_norm), tags=(tag,))
 
         # Try to restore selection and detail view
         if sel_ot is not None:
@@ -326,9 +341,10 @@ class OTsFrame(ctk.CTkFrame):
                 except Exception:
                     abono = sum(p.get('m', 0) for p in d.get('pagos', []))
 
-        self.lbl_total.configure(text=f"{d.get('monto',0):,} Gs.")
-        self.lbl_abonado.configure(text=f"{abono:,} Gs.")
-        self.lbl_saldo.configure(text=f"{d.get('monto',0) - abono:,} Gs.")
+        total_val = d.get('monto', 0)
+        self.lbl_total.configure(text=_format_gs(total_val))
+        self.lbl_abonado.configure(text=_format_gs(abono))
+        self.lbl_saldo.configure(text=_format_gs(total_val - abono))
 
     def cargar_ots_desde_db(self):
         """Recargar OTs desde el servicio y mapear campos (incluye `sena`)."""

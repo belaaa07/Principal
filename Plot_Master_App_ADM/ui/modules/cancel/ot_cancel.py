@@ -75,14 +75,14 @@ class VentanaCancelacion(ctk.CTkToplevel):
 
         # BOTÓN FINAL
         self.btn_cancelar = ctk.CTkButton(self.main_frame, 
-                                          text="Cancelar Orden", 
-                                          height=48,
-                                          font=("Segoe UI", 14, "bold"),
-                                          fg_color="#E74C3C", 
-                                          hover_color="#C0392B", 
-                                          text_color="white",
-                                          corner_radius=10,
-                                          command=self.procesar_cancelacion)
+                          text="Cancelar Orden", 
+                          height=60,
+                          font=("Segoe UI", 16, "bold"),
+                          fg_color="#E74C3C", 
+                          hover_color="#C0392B", 
+                          text_color="white",
+                          corner_radius=12,
+                          command=self.procesar_cancelacion)
         self.btn_cancelar.pack(fill="x", pady=(35, 0))
 
     def procesar_cancelacion(self):

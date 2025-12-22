@@ -113,10 +113,11 @@ class OrdenesFrame(ctk.CTkFrame):
 # ==========================================================================
 
 class MainAppFrame(ctk.CTkFrame):
-    def __init__(self, parent, user_name: str = None):
+    def __init__(self, parent, user_name: str = None, admin_context: dict = None):
         super().__init__(parent, fg_color="transparent")
         self.parent = parent
-        self.user_name = user_name or "Usuario"
+        self.admin_context = admin_context or {}
+        self.user_name = user_name or self.admin_context.get('nombre') or "Usuario"
 
         # Make this frame expand to fill parent and set column weights
         self.grid(row=0, column=0, sticky="nsew")
@@ -236,7 +237,7 @@ class MainAppFrame(ctk.CTkFrame):
     def _show_ordenes_list(self):
         self._clear_central()
         self.central_container.grid_columnconfigure(0, weight=1)
-        ordenes_list_frame = ModuloOTs(self.central_container)
+        ordenes_list_frame = ModuloOTs(self.central_container, admin_context=self.admin_context)
         ordenes_list_frame.grid(row=0, column=0, sticky="nsew")
 
     def _show_clientes(self):

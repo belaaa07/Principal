@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import hashlib
 import hmac
 import secrets
-from datetime import datetime
+from datetime import datetime, date
 
 # --- CONFIGURACIÓN INICIAL DEL CLIENTE SUPABASE ---
 
@@ -224,7 +224,11 @@ def verify_admin_credentials(ci_ruc: str, password: str):
         if not salt or not pw_hash:
             return False, "Credenciales incompletas para el administrador."
         if _verify_password(password, salt, pw_hash):
-            return True, admin.get('nombre')
+            return True, {
+                'id': admin.get('id'),
+                'ci_ruc': admin.get('ci_ruc'),
+                'nombre': admin.get('nombre')
+            }
         return False, "Contraseña incorrecta."
     except Exception as e:
         print(f"Error al verificar credenciales admin: {e}")
@@ -379,10 +383,25 @@ def delete_abono(abono_id: int):
         return False, f"Error al eliminar abono: {e}"
 
 
-def update_work_order_status(ot_nro, status):
+def _format_date_value(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value).strip()
+    return text if text else None
+
+
+def update_work_order_status(ot_nro, status, fecha_entrega=None):
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
-        response = supabase.table('ordenes_trabajo').update({'status': status}).eq('ot_nro', ot_nro).execute()
+        updates = {'status': status}
+        fecha_payload = _format_date_value(fecha_entrega)
+        if fecha_payload is not None:
+            updates['fecha_entrega'] = fecha_payload
+        response = supabase.table('ordenes_trabajo').update(updates).eq('ot_nro', ot_nro).execute()
         if hasattr(response, 'error') and response.error:
             return False, str(response.error)
         if not getattr(response, 'data', None):
@@ -391,6 +410,63 @@ def update_work_order_status(ot_nro, status):
     except Exception as e:
         print(f"Error al actualizar estado OT: {e}")
         return False, f"Error al actualizar estado: {e}"
+
+
+def cancel_work_order(ot_nro, admin_id, motivo=None, reembolso=0):
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+    if not admin_id:
+        return False, "No se encontró administrador autenticado."
+    try:
+        response = supabase.table('ordenes_trabajo').select('*').eq('ot_nro', ot_nro).limit(1).execute()
+        row = (response.data[0] if response.data else None)
+        if not row:
+            return False, "Orden no encontrada."
+        if (row.get('status') or '').strip().lower() == 'cancelado':
+            return False, "La orden ya fue cancelada previamente."
+        cancel_payload = {
+            'ot_id': row.get('id'),
+            'cliente_id': row.get('cliente_id'),
+            'vendedor_id': row.get('vendedor_id'),
+            'descripcion': row.get('descripcion') or '',
+            'motivo': motivo or '',
+            'reembolso': float(reembolso) if reembolso else 0,
+            'estado_anterior': row.get('status') or 'Pendiente',
+            'cancelado_por': admin_id,
+            'fecha_creacion_ot': _format_date_value(row.get('fecha_creacion') or row.get('created_at')) or date.today().isoformat(),
+            'fecha_cancelacion': datetime.utcnow().isoformat()
+        }
+        ins = supabase.table('cancelaciones').insert(cancel_payload).execute()
+        if hasattr(ins, 'error') and ins.error:
+            return False, str(ins.error)
+        upd = supabase.table('ordenes_trabajo').update({'status': 'Cancelado'}).eq('id', row.get('id')).execute()
+        if hasattr(upd, 'error') and upd.error:
+            return False, str(upd.error)
+        return True, "Orden cancelada"
+    except Exception as e:
+        print(f"Error al cancelar OT {ot_nro}: {e}")
+        return False, f"Error al cancelar la OT: {e}"
+
+
+def update_work_order_details(ot_nro, updates: dict):
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+    if not updates:
+        return False, "No hay campos para actualizar."
+    try:
+        try:
+            ot_key = int(ot_nro)
+        except Exception:
+            ot_key = ot_nro
+        response = supabase.table('ordenes_trabajo').update(updates).eq('ot_nro', ot_key).execute()
+        if hasattr(response, 'error') and response.error:
+            return False, str(response.error)
+        if not getattr(response, 'data', None):
+            return False, "No se actualizó ninguna orden (OT no encontrada o sin permisos)."
+        return True, "Orden actualizada"
+    except Exception as e:
+        print(f"Error al actualizar detalles OT: {e}")
+        return False, f"Error al actualizar orden: {e}"
 
 
 def add_sena_to_order(ot_nro, amount):

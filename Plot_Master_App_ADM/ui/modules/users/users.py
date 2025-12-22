@@ -77,9 +77,6 @@ class ModuloAccesos(ctk.CTkFrame):
         self.btn_editar = ctk.CTkButton(self.frame_det, text="✏️ Editar Datos", fg_color="#3498DB", text_color="white", command=self.abrir_ventana_editar, state="disabled")
         self.btn_editar.pack(pady=10, padx=30, fill="x")
 
-        self.btn_borrar = ctk.CTkButton(self.frame_det, text="🗑️ Borrar Usuario", fg_color="#E74C3C", text_color="white", command=self.borrar_usuario, state="disabled")
-        self.btn_borrar.pack(pady=10, padx=30, fill="x")
-
         self.btn_refresh = ctk.CTkButton(self.frame_det, text="🔄 Refrescar", fg_color="#7F8C8D", text_color="white", command=self.cargar_usuarios)
         self.btn_refresh.pack(pady=12, padx=30, fill="x")
 
@@ -139,7 +136,6 @@ class ModuloAccesos(ctk.CTkFrame):
         if self.usuario_seleccionado:
             self.lbl_info.configure(text=f"{self.usuario_seleccionado.get('nombre')}\nCI/RUC: {self.usuario_seleccionado.get('ci_ruc')}", text_color="black")
             self.btn_editar.configure(state="normal")
-            self.btn_borrar.configure(state="normal")
 
     def abrir_ventana_editar(self):
         u = self.usuario_seleccionado

@@ -2,17 +2,45 @@ import customtkinter as ctk
 from tkinter import ttk, messagebox
 from datetime import datetime
 from services.supabase_service import (
+    add_sena_to_order,
+    cancel_work_order,
+    delete_abono,
     get_all_work_orders,
     get_work_order_by_ot,
+    update_work_order_details,
     update_work_order_status,
     update_work_order_value,
-    add_sena_to_order,
-    delete_abono,
 )
+from ..cancel.ot_cancel import VentanaCancelacion
 
 # --- CONFIGURACIÓN DE ESTILO ---
 ctk.set_appearance_mode("light") 
 ctk.set_default_color_theme("blue")
+
+FORMA_PAGO_OPTIONS = ["Contado", "Crédito"]
+ENVIO_OPTIONS = ["Con Envío", "Sin Envío (Retira)"]
+
+def _to_int_amount(valor):
+    try:
+        return int(round(float(valor or 0)))
+    except Exception:
+        return 0
+
+def _format_gs(valor):
+    return f"{_to_int_amount(valor):,} Gs."
+
+def _format_date_detail(raw_fecha):
+    if not raw_fecha:
+        return ""
+    fecha_texto = str(raw_fecha).split('T')[0]
+    try:
+        fecha_dt = datetime.strptime(fecha_texto, "%Y-%m-%d")
+        return fecha_dt.strftime("%d/%m/%Y")
+    except Exception:
+        return fecha_texto
+
+def _envio_label_from_flag(flag):
+    return "Con Envío" if flag else "Sin Envío (Retira)"
 
 class VentanaAbono(ctk.CTkToplevel):
     def __init__(self, parent, callback):
@@ -39,12 +67,13 @@ class VentanaAbono(ctk.CTkToplevel):
             messagebox.showerror("Error", "Ingrese un monto válido.")
 
 class ModuloOTs(ctk.CTkFrame):
-    def __init__(self, parent):
+    def __init__(self, parent, admin_context=None):
         super().__init__(parent, fg_color="transparent")
 
         # Datos cargados desde Supabase
         self.datos_ots = []
         self.ot_seleccionada = None
+        self.admin_context = admin_context or {}
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
@@ -65,7 +94,7 @@ class ModuloOTs(ctk.CTkFrame):
         ctk.CTkLabel(header, text="PLANILLA DE OTs", font=("Arial", 22, "bold")).pack(side="left")
         
         # Administrador: permitir ver OTs por estado (por defecto: Todos)
-        estados_admin = ["Todos", "Pendiente", "Aprobado", "Entregado", "Finalizado"]
+        estados_admin = ["Todos", "Pendiente", "Aprobado", "Entregado", "Finalizado", "Cancelado"]
         self.filtro_var = ctk.StringVar(value="Todos")
         self.combo_filtro = ctk.CTkComboBox(header, values=estados_admin,
                     variable=self.filtro_var, command=self.actualizar_tabla, width=140)
@@ -102,6 +131,8 @@ class ModuloOTs(ctk.CTkFrame):
         self.tabla.tag_configure("entregado", background="#FFF4CC")
         # Finalizado: verde claro (administrador)
         self.tabla.tag_configure("finalizado", background="#BDECB6")
+        # Cancelado: morado/purpura claro (administrador)
+        self.tabla.tag_configure("cancelado", background="#F3E8FF")
 
         anchos = {"ot": 60, "fecha": 90, "vendedor": 100, "cliente": 150, "descripcion": 350, "monto": 100, "abonado": 100, "pago": 90, "estado": 100}
         for col in columnas:
@@ -127,6 +158,7 @@ class ModuloOTs(ctk.CTkFrame):
             # Administrador nunca debe ver OTs rechazadas
             if status_val == 'rechazado':
                 continue
+            envia_flag = bool(r.get('solicita_envio'))
             mapped.append({
                 'ot': str(r.get('ot_nro') or r.get('ot') or ''),
                 'fecha': (r.get('fecha_creacion') or r.get('created_at') or '').split('T')[0] if r.get('fecha_creacion') or r.get('created_at') else '',
@@ -139,7 +171,9 @@ class ModuloOTs(ctk.CTkFrame):
                 'abonado_total': r.get('abonado_total', 0) or 0,
                 'pago': r.get('forma_pago') or '',
                 'estado': r.get('status') or '',
-                'envio': 'Con Envío' if r.get('solicita_envio') else 'Sin Envío',
+                'envio': _envio_label_from_flag(envia_flag),
+                'solicita_envio': envia_flag,
+                'fecha_entrega': r.get('fecha_entrega'),
             })
         self.datos_ots = mapped
         self.actualizar_tabla()
@@ -155,7 +189,7 @@ class ModuloOTs(ctk.CTkFrame):
         self.lbl_ot_nro = self.crear_dato("OT Nro:")
         self.lbl_vendedor = self.crear_dato("Vendedor:")
         self.lbl_cliente = self.crear_dato("Cliente:")
-        self.lbl_envio = self.crear_dato("Tipo Envío:")
+        self.lbl_envio = self.crear_combo_dato("Tipo Envío:", ENVIO_OPTIONS)
 
         f_desc = ctk.CTkFrame(self.info_container, fg_color="transparent")
         f_desc.pack(fill="x", pady=5)
@@ -164,18 +198,22 @@ class ModuloOTs(ctk.CTkFrame):
         self.lbl_desc = ctk.CTkLabel(f_desc, text="---", font=("Arial", 11), wraplength=420, justify="left")
         self.lbl_desc.pack(side="left")
 
-        self.lbl_pago = self.crear_dato("Forma Pago:")
+        self.lbl_pago = self.crear_combo_dato("Forma Pago:", FORMA_PAGO_OPTIONS)
 
-        self.crear_separador()
+        self.frame_fecha_entrega = ctk.CTkFrame(self.info_container, fg_color="transparent")
+        ctk.CTkLabel(self.frame_fecha_entrega, text="Fecha Entrega:", font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
+        self.lbl_fecha_entrega_val = ctk.CTkLabel(self.frame_fecha_entrega, text="---", font=("Arial", 11))
+        self.lbl_fecha_entrega_val.pack(side="left")
 
-        # EDICIÓN DE PRECIO TOTAL
-        f_edit_monto = ctk.CTkFrame(self.frame_det, fg_color="transparent")
-        f_edit_monto.pack(fill="x", padx=10)
-        ctk.CTkLabel(f_edit_monto, text="Editar Precio Total:", font=("Arial", 11, "bold")).pack(side="left")
-        self.entry_precio_total = ctk.CTkEntry(f_edit_monto, width=100, height=25)
-        self.entry_precio_total.pack(side="left", padx=5)
-        self.btn_upd_monto = ctk.CTkButton(f_edit_monto, text="✓", width=30, height=25, command=self.actualizar_precio_total)
-        self.btn_upd_monto.pack(side="left")
+        # EDICIÓN DE PRECIO TOTAL (alineado con otros campos)
+        f_precio = ctk.CTkFrame(self.info_container, fg_color="transparent")
+        f_precio.pack(fill="x", pady=2)
+        ctk.CTkLabel(f_precio, text="Precio Total:", font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
+        self.entry_precio_total = ctk.CTkEntry(f_precio, width=170, height=25)
+        self.entry_precio_total.pack(side="left")
+
+        self.btn_guardar_pago_envio = ctk.CTkButton(self.frame_det, text="Guardar datos", height=35, fg_color="#2980B9", command=self.guardar_pago_envio)
+        self.btn_guardar_pago_envio.pack(pady=5, fill="x", padx=10)
 
         self.crear_separador()
 
@@ -205,6 +243,7 @@ class ModuloOTs(ctk.CTkFrame):
         # Botones de entrega y finalización (se muestran según estado)
         self.btn_marcar_entregado = ctk.CTkButton(self.frame_det, text="MARCAR COMO ENTREGADO", height=45, fg_color="#F39C12", command=self.abrir_modal_entrega)
         self.btn_finalizar = ctk.CTkButton(self.frame_det, text="FINALIZAR PEDIDO", height=45, fg_color="#27AE60", command=lambda: self.cambiar_estado("finalizado"))
+        self.btn_cancelar = ctk.CTkButton(self.frame_det, text="CANCELAR OT", height=45, fg_color="#C0392B", command=self.abrir_modal_cancelacion)
 
     def crear_dato(self, titulo):
         f = ctk.CTkFrame(self.info_container, fg_color="transparent")
@@ -213,6 +252,14 @@ class ModuloOTs(ctk.CTkFrame):
         l = ctk.CTkLabel(f, text="---", font=("Arial", 11))
         l.pack(side="left")
         return l
+
+    def crear_combo_dato(self, titulo, opciones):
+        f = ctk.CTkFrame(self.info_container, fg_color="transparent")
+        f.pack(fill="x", pady=2)
+        ctk.CTkLabel(f, text=titulo, font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
+        combo = ctk.CTkComboBox(f, values=opciones, width=170)
+        combo.pack(side="left")
+        return combo
 
     def crear_total(self, titulo, color=None):
         f = ctk.CTkFrame(self.frame_det, fg_color="transparent")
@@ -252,7 +299,9 @@ class ModuloOTs(ctk.CTkFrame):
                         except Exception:
                             abono = sum(p.get('m', 0) for p in d.get('pagos', []))
                 tag = (d.get("estado") or '').lower()
-                self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("vendedor"), d.get("cliente"), d.get("descripcion"), f"{d.get('monto'):,} Gs.", f"{abono:,} Gs.", d.get("pago"), d.get("estado")), tags=(tag,))
+                monto_str = _format_gs(d.get('monto', 0))
+                abono_str = _format_gs(abono)
+                self.tabla.insert("", "end", values=(d.get("ot"), d.get("fecha"), d.get("vendedor"), d.get("cliente"), d.get("descripcion"), monto_str, abono_str, d.get("pago"), d.get("estado")), tags=(tag,))
 
     def al_seleccionar_fila(self, e):
         sel = self.tabla.selection()
@@ -266,6 +315,11 @@ class ModuloOTs(ctk.CTkFrame):
                 if ok and detalle:
                     self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
                     self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
+                    self.ot_seleccionada['fecha_entrega'] = detalle.get('fecha_entrega', self.ot_seleccionada.get('fecha_entrega'))
+                    self.ot_seleccionada['solicita_envio'] = detalle.get('solicita_envio', self.ot_seleccionada.get('solicita_envio', False))
+                    envio_flag = bool(self.ot_seleccionada.get('solicita_envio'))
+                    self.ot_seleccionada['envio'] = _envio_label_from_flag(envio_flag)
+                    self.ot_seleccionada['pago'] = detalle.get('forma_pago', self.ot_seleccionada.get('pago'))
             except Exception:
                 pass
             self.refrescar_detalle()
@@ -324,17 +378,22 @@ class ModuloOTs(ctk.CTkFrame):
 
     def refrescar_detalle(self):
         d = self.ot_seleccionada
+        if not d:
+            return
         self.lbl_ot_nro.configure(text=d['ot'])
         self.lbl_vendedor.configure(text=d['vendedor'])
         self.lbl_cliente.configure(text=d['cliente'])
-        self.lbl_desc.configure(text=d['descripcion'])
-        self.lbl_pago.configure(text=d['pago'])
-        self.lbl_envio.configure(text=d['envio'])
+        self.lbl_desc.configure(text=d['descripcion'] or "---")
+        pago_actual = d.get('pago') or FORMA_PAGO_OPTIONS[0]
+        if pago_actual not in FORMA_PAGO_OPTIONS:
+            pago_actual = FORMA_PAGO_OPTIONS[0]
+        self.lbl_pago.set(pago_actual)
+        envio_flag = bool(d.get('solicita_envio'))
+        self.lbl_envio.set(_envio_label_from_flag(envio_flag))
         self.entry_precio_total.delete(0, 'end')
-        self.entry_precio_total.insert(0, str(d['monto']))
+        self.entry_precio_total.insert(0, str(_to_int_amount(d.get('monto'))))
 
         for w in self.container_historial.winfo_children(): w.destroy()
-        # Preferir abonado_total (persistido). Si no hay, usar suma de pagos en memoria
         if d.get('abonado_total') is not None:
             try:
                 abono = float(d.get('abonado_total') or 0)
@@ -346,16 +405,18 @@ class ModuloOTs(ctk.CTkFrame):
             f = ctk.CTkFrame(self.container_historial, fg_color="white")
             f.pack(fill="x", pady=2, padx=5)
             ctk.CTkLabel(f, text=f"📅 {p['f']}", font=("Arial", 10)).pack(side="left", padx=5)
-            ctk.CTkLabel(f, text=f"{p['m']:,} Gs.", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+            ctk.CTkLabel(f, text=_format_gs(p.get('m')), font=("Arial", 10, "bold")).pack(side="left", padx=5)
             btn_del = ctk.CTkButton(f, text="X", width=20, height=20, fg_color="#E74C3C", command=lambda idx=i: self.eliminar_pago(idx))
             btn_del.pack(side="right", padx=5)
 
-        self.lbl_total_view.configure(text=f"{d['monto']:,} Gs.")
-        self.lbl_abonado.configure(text=f"{abono:,} Gs.")
-        self.lbl_saldo.configure(text=f"{d['monto'] - abono:,} Gs.")
+        self.lbl_total_view.configure(text=_format_gs(d.get('monto')))
+        self.lbl_abonado.configure(text=_format_gs(abono))
+        self.lbl_saldo.configure(text=_format_gs(d.get('monto', 0) - abono))
 
-        # Lógica de botones según estado (mostrar solo cuando corresponda)
         estado_lower = (d.get('estado') or '').lower()
+        self._mostrar_fecha_entrega(d.get('fecha_entrega'), estado_lower)
+        self._actualizar_boton_cancelar(estado_lower)
+        
         if estado_lower == 'pendiente':
             self.btn_aprobar.configure(state="normal", fg_color="#27AE60")
             self.btn_rechazar.configure(state="normal", fg_color="#E74C3C")
@@ -402,6 +463,74 @@ class ModuloOTs(ctk.CTkFrame):
                 self.btn_finalizar.pack_forget()
             except Exception:
                 pass
+
+    def _mostrar_fecha_entrega(self, raw_fecha, estado_lower):
+        debe_mostrar = estado_lower in ('entregado', 'finalizado') and bool(raw_fecha)
+        if debe_mostrar:
+            fecha_texto = _format_date_detail(raw_fecha) or "---"
+            self.lbl_fecha_entrega_val.configure(text=fecha_texto)
+            if not self.frame_fecha_entrega.winfo_manager():
+                self.frame_fecha_entrega.pack(fill="x", pady=2)
+        else:
+            if self.frame_fecha_entrega.winfo_manager():
+                self.frame_fecha_entrega.pack_forget()
+
+    def guardar_pago_envio(self):
+        if not self.ot_seleccionada:
+            messagebox.showinfo("Info", "Seleccione primero una OT para guardar los cambios de pago o envío.")
+            return
+        forma_pago = self.lbl_pago.get() or FORMA_PAGO_OPTIONS[0]
+        envio_label = self.lbl_envio.get()
+        solicita_envio = envio_label == ENVIO_OPTIONS[0]
+
+        cambios = {}
+        if forma_pago != (self.ot_seleccionada.get('pago') or ""):
+            cambios['forma_pago'] = forma_pago
+        if bool(self.ot_seleccionada.get('solicita_envio')) != solicita_envio:
+            cambios['solicita_envio'] = solicita_envio
+
+        # También verificar si el precio total fue modificado y persistirlo
+        nuevo_text = (self.entry_precio_total.get() or '').strip()
+        precio_cambiado = False
+        nuevo_val = None
+        try:
+            if nuevo_text != '':
+                nuevo_val = int(round(float(nuevo_text)))
+                precio_actual = _to_int_amount(self.ot_seleccionada.get('monto'))
+                if nuevo_val != precio_actual:
+                    precio_cambiado = True
+        except Exception:
+            messagebox.showerror("Error", "Monto inválido. Asegúrese de ingresar un número válido.")
+            return
+
+        if not cambios and not precio_cambiado:
+            messagebox.showinfo("Sin cambios", "No se detectaron cambios en forma de pago, envío o precio.")
+            return
+
+        errors = []
+        # Primero persistir detalles (forma/envío) si hay cambios
+        if cambios:
+            ok, msg = update_work_order_details(self.ot_seleccionada.get('ot'), cambios)
+            if ok:
+                self.ot_seleccionada['pago'] = forma_pago
+                self.ot_seleccionada['solicita_envio'] = solicita_envio
+                self.ot_seleccionada['envio'] = _envio_label_from_flag(solicita_envio)
+            else:
+                errors.append(f"detalle: {msg}")
+
+        # Luego persistir precio si cambió
+        if precio_cambiado:
+            ok2, msg2 = update_work_order_value(self.ot_seleccionada.get('ot'), int(nuevo_val))
+            if ok2:
+                self.ot_seleccionada['monto'] = int(nuevo_val)
+            else:
+                errors.append(f"precio: {msg2}")
+
+        if errors:
+            messagebox.showerror("Error", f"Algunos cambios no se pudieron guardar: {'; '.join(errors)}")
+        else:
+            messagebox.showinfo("Actualizado", "Cambios guardados correctamente.")
+        self.refrescar_detalle(); self.actualizar_tabla()
 
     def abrir_ventana_pago(self):
         if self.ot_seleccionada: VentanaAbono(self, self.registrar_abono_final)
@@ -509,14 +638,15 @@ class ModuloOTs(ctk.CTkFrame):
             y = (self.cb_anio.get() or '').strip()
             fecha = f"{d}/{m}/{y}"
             try:
-                from datetime import datetime as __dt
-                __dt.strptime(fecha, "%d/%m/%Y")
+                fecha_obj = datetime.strptime(fecha, "%d/%m/%Y").date()
             except Exception:
                 messagebox.showerror("Error", "Seleccione una fecha válida.")
                 return
-            ok, msg = update_work_order_status(self.ot_seleccionada.get('ot'), 'Entregado')
+            fecha_payload = fecha_obj.isoformat()
+            ok, msg = update_work_order_status(self.ot_seleccionada.get('ot'), 'Entregado', fecha_entrega=fecha_payload)
             if ok:
                 self.ot_seleccionada['estado'] = 'Entregado'
+                self.ot_seleccionada['fecha_entrega'] = fecha_payload
                 win.destroy()
                 self.actualizar_tabla()
                 self.refrescar_detalle()
@@ -530,6 +660,45 @@ class ModuloOTs(ctk.CTkFrame):
         btn_cancel = ctk.CTkButton(fr_btn, text="Cancelar", fg_color="#F5B7B1", width=120, command=win.destroy)
         btn_ok.pack(side="left", padx=8)
         btn_cancel.pack(side="left", padx=8)
+
+    def abrir_modal_cancelacion(self):
+        if not self.ot_seleccionada:
+            return
+        VentanaCancelacion(self, self.ot_seleccionada.get('ot'), self.confirmar_cancelacion)
+
+    def confirmar_cancelacion(self, datos_cancelacion):
+        admin_id = self.admin_context.get('id')
+        if not admin_id:
+            messagebox.showerror("Error", "No se encontró administrador autenticado.")
+            return
+        ot_nro = datos_cancelacion.get('ot')
+        motivo = datos_cancelacion.get('motivo')
+        reembolso = datos_cancelacion.get('reembolso', 0)
+        ok, msg = cancel_work_order(ot_nro, admin_id, motivo=motivo, reembolso=reembolso)
+        if ok:
+            for d in self.datos_ots:
+                if d.get('ot') == ot_nro:
+                    d['estado'] = 'Cancelado'
+            if self.ot_seleccionada and self.ot_seleccionada.get('ot') == ot_nro:
+                self.ot_seleccionada['estado'] = 'Cancelado'
+            messagebox.showinfo("Cancelada", "La orden fue cancelada correctamente.")
+            self.actualizar_tabla()
+            self.refrescar_detalle()
+        else:
+            messagebox.showerror("Error", f"No se pudo cancelar la OT: {msg}")
+
+    def _actualizar_boton_cancelar(self, estado_lower):
+        if not hasattr(self, 'btn_cancelar'):
+            return
+        manager = self.btn_cancelar.winfo_manager()
+        final_states = ('finalizado', 'cancelado')
+        if estado_lower in final_states:
+            if manager:
+                self.btn_cancelar.pack_forget()
+        else:
+            if not manager:
+                self.btn_cancelar.pack(pady=5, fill="x", padx=10)
+
     def rechazar_ot(self):
         if self.ot_seleccionada:
             if messagebox.askyesno("Confirmar", f"¿Está seguro de rechazar la OT {self.ot_seleccionada['ot']}? Esto marcará la OT como rechazada."):

@@ -42,10 +42,11 @@ class LoginFrame(ctk.CTkFrame):
         contrasena = self.contrasena_entry.get().strip()
         ok, result = verify_admin_credentials(ci, contrasena)
         if ok:
-            nombre_usuario = result
+            admin_info = result or {}
+            nombre_usuario = admin_info.get('nombre', ci)
             messagebox.showinfo("Éxito", f"¡Bienvenido/a, {nombre_usuario}!\nInicio de sesión exitoso.")
             if callable(self.on_success):
-                self.on_success(ci, nombre_usuario)
+                self.on_success(admin_info)
         else:
             messagebox.showerror("Error de Login", result)
 

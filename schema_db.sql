@@ -60,6 +60,25 @@ create table public.ordenes_trabajo (
   constraint ordenes_trabajo_vendedor_id_fkey foreign KEY (vendedor_id) references usuarios (id)
 ) TABLESPACE pg_default;
 
+create table public.cancelaciones (
+  id bigserial not null,
+  ot_id bigint not null,
+  cliente_id bigint not null,
+  vendedor_id bigint not null,
+  descripcion text null,
+  motivo text null,
+  estado_anterior public.ordenes_estados not null,
+  cancelado_por bigint not null,
+  fecha_creacion_ot date not null,
+  fecha_cancelacion timestamp with time zone not null default now(),
+  reembolso numeric(12,2) not null default 0,
+  constraint cancelaciones_pkey primary key (id),
+  constraint cancelaciones_ot_id_fkey foreign key (ot_id) references ordenes_trabajo (id) on delete cascade,
+  constraint cancelaciones_cliente_id_fkey foreign key (cliente_id) references clientes (id),
+  constraint cancelaciones_vendedor_id_fkey foreign key (vendedor_id) references usuarios (id),
+  constraint cancelaciones_cancelado_por_fkey foreign key (cancelado_por) references administradores (id)
+) TABLESPACE pg_default;
+
 create table public.usuarios (
   id bigserial not null,
   ci_ruc text not null,
@@ -72,3 +91,4 @@ create table public.usuarios (
   constraint usuarios_pkey primary key (id),
   constraint usuarios_ci_ruc_key unique (ci_ruc)
 ) TABLESPACE pg_default;
+
