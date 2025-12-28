@@ -13,6 +13,9 @@ class ModuloClientes(ctk.CTkFrame):
 
         self.clientes = []
         self.historial_ots = {}
+        # Control de cargas en background para evitar bloqueos al cambiar de fila
+        self._ots_request_id = 0
+        self._ultima_seleccion = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
@@ -64,9 +67,15 @@ class ModuloClientes(ctk.CTkFrame):
 
     def crear_panel_detalle_derecho(self):
         # Frame de la ficha con fondo claro
-        self.frame_det = ctk.CTkScrollableFrame(self, width=380, label_text="FICHA DEL CLIENTE", 
-                                                label_text_color="black",
-                                                border_width=1, border_color="#D0D0D0", fg_color="white")
+        self.frame_det = ctk.CTkScrollableFrame(
+            self,
+            width=380,
+            label_text="FICHA DEL CLIENTE",
+            label_text_color="black",
+            border_width=1,
+            border_color="#D0D0D0",
+            fg_color="white"
+        )
         self.frame_det.grid(row=0, column=1, padx=(0, 15), pady=15, sticky="nsew")
 
         self.container_datos = ctk.CTkFrame(self.frame_det, fg_color="transparent")
@@ -204,20 +213,43 @@ class ModuloClientes(ctk.CTkFrame):
                     pass
         except Exception:
             pass
-        # Cargar OTs reales desde la base de datos (Supabase)
+        # Mostrar OTs sin bloquear la UI: cache + fetch en background
+        self._ultima_seleccion = ci_ruc
+        self._mostrar_ots_cached_o_cargar(ci_ruc)
+
+    def _mostrar_ots_cached_o_cargar(self, ci_ruc):
+        cached = self.historial_ots.get(ci_ruc)
+        if cached is not None:
+            self._render_ots_list(cached)
+        else:
+            self.lbl_lista_ots.configure(text="Buscando órdenes…", text_color="gray")
+
+        self._ots_request_id += 1
+        req_id = self._ots_request_id
+        threading.Thread(target=self._fetch_ots_background, args=(ci_ruc, req_id), daemon=True).start()
+
+    def _fetch_ots_background(self, ci_ruc, req_id):
         try:
             ok, data = get_work_orders_by_client(ci_ruc)
         except Exception as ex:
-            print(f"Error llamando a get_work_orders_by_client: {ex}")
-            ok, data = False, None
+            ok, data = False, f"Error llamando a get_work_orders_by_client: {ex}"
+        self.after(0, lambda: self._apply_ots_response(ci_ruc, req_id, ok, data))
 
-        if not ok or not data:
-            # Vaciar contenedor y mostrar texto por defecto
-            self.lbl_lista_ots.configure(text="Sin órdenes registradas", text_color="gray")
-            print(f"No hay OTs para cliente {ci_ruc} (ok={ok}, data={data})")
+    def _apply_ots_response(self, ci_ruc, req_id, ok, data):
+        # Ignorar respuestas viejas o de otra selección
+        if req_id != self._ots_request_id or ci_ruc != self._ultima_seleccion:
             return
+        if not ok:
+            self.lbl_lista_ots.configure(text="No se pudieron cargar las OTs", text_color="gray")
+            return
+        ot_list = data or []
+        self.historial_ots[ci_ruc] = ot_list
+        self._render_ots_list(ot_list)
 
-        # data es una lista de filas; extraer números de OT
+    def _render_ots_list(self, data):
+        if not data:
+            self.lbl_lista_ots.configure(text="Sin órdenes registradas", text_color="gray")
+            return
         ot_nros = [str(r.get('ot_nro') or r.get('ot') or '') for r in data]
         texto_ots = " , ".join([f"#{n}" for n in ot_nros if n])
         if texto_ots:

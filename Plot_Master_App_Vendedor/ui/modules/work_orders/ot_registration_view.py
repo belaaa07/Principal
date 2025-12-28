@@ -241,10 +241,10 @@ class OTForm(ctk.CTkFrame):
 
         # --- Caja de Detalles del Cliente ---
         client_box = ctk.CTkFrame(client_column, fg_color="#ffffff", border_width=1, border_color="#dee2e6", corner_radius=8)
-        client_box.pack(fill="both", expand=True)
+        client_box.pack(fill="both", expand=True, pady=(0, 4))
         
         header = ctk.CTkFrame(client_box, fg_color="#f1f3f5", corner_radius=0)
-        header.pack(fill="x", ipady=8)
+        header.pack(fill="x", ipady=6)
         header.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(header, text="Detalles del Cliente", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, padx=15, sticky="w")
         
@@ -252,11 +252,11 @@ class OTForm(ctk.CTkFrame):
         registrar_btn.grid(row=0, column=1, padx=15, sticky="e")
 
         body = ctk.CTkFrame(client_box, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=15, pady=15)
+        body.pack(fill="both", expand=True, padx=12, pady=10)
 
         ctk.CTkLabel(body, text="Buscar por CI | RUC").pack(anchor="w", padx=5)
         ci_entry_frame = ctk.CTkFrame(body, fg_color="transparent")
-        ci_entry_frame.pack(fill="x", expand=True)
+        ci_entry_frame.pack(fill="x", expand=True, pady=(0, 6))
         ci_entry_frame.grid_columnconfigure(0, weight=1)
 
         ci_entry = ctk.CTkEntry(ci_entry_frame, textvariable=self.ci_ruc_var)
@@ -265,16 +265,16 @@ class OTForm(ctk.CTkFrame):
         ci_entry.bind("<FocusOut>", self.validar_y_buscar)
         
         self.registro_label = ctk.CTkLabel(body, text="", font=ctk.CTkFont(size=12))
-        self.registro_label.pack(anchor="w", padx=5, pady=(2, 10))
+        self.registro_label.pack(anchor="w", padx=5, pady=(2, 6))
 
         ctk.CTkLabel(body, text="Nombre del Cliente").pack(anchor="w", padx=5)
-        ctk.CTkEntry(body, textvariable=self.nombre_var, state="readonly").pack(fill="x", expand=True, pady=(0, 10))
+        ctk.CTkEntry(body, textvariable=self.nombre_var, state="readonly").pack(fill="x", expand=True, pady=(0, 8))
         
         ctk.CTkLabel(body, text="Teléfono").pack(anchor="w", padx=5)
-        ctk.CTkEntry(body, textvariable=self.phone_var, state="readonly").pack(fill="x", expand=True, pady=(0, 10))
+        ctk.CTkEntry(body, textvariable=self.phone_var, state="readonly").pack(fill="x", expand=True, pady=(0, 8))
 
         ctk.CTkLabel(body, text="Email").pack(anchor="w", padx=5)
-        ctk.CTkEntry(body, textvariable=self.email_var, state="readonly").pack(fill="x", expand=True, pady=(0, 10))
+        ctk.CTkEntry(body, textvariable=self.email_var, state="readonly").pack(fill="x", expand=True, pady=(0, 6))
 
     def crear_columna_detalles(self):
         """Crea el frame y widgets para la columna de detalles de la orden."""

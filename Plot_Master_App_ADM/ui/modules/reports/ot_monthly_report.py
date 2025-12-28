@@ -94,21 +94,26 @@ class ReporteMensualOT(ctk.CTkFrame):
         self.status_label = ctk.CTkLabel(card, text="", text_color="#374151")
         self.status_label.grid(row=2, column=0, columnspan=3, padx=10, pady=(0, 10), sticky="w")
 
-        # Badge finalizadas
-        self.badge = ctk.CTkLabel(card, text="Solo estado: FINALIZADO", text_color="#065f46", fg_color="#d1fae5", corner_radius=8, padx=10, pady=6, font=ctk.CTkFont(size=11, weight="bold"))
-        self.badge.grid(row=3, column=0, columnspan=3, sticky="w", padx=10, pady=(0, 8))
-
     def _create_date_input(self, parent, label, col):
         wrapper = ctk.CTkFrame(parent, fg_color="transparent")
         wrapper.grid(row=0, column=col, padx=10, pady=10, sticky="nsew")
         ctk.CTkLabel(wrapper, text=label, font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
+        input_card = ctk.CTkFrame(wrapper, fg_color="#f7f9fb", corner_radius=10, border_width=1, border_color="#e5e7eb")
+        input_card.pack(fill="x", pady=(6, 0))
+
+        row = ctk.CTkFrame(input_card, fg_color="transparent")
+        row.pack(fill="x", padx=10, pady=(8, 4))
+        ctk.CTkLabel(row, text="📅", width=28, anchor="center", font=ctk.CTkFont(size=14)).pack(side="left", padx=(0, 8))
+
         if DateEntry:
-            picker = DateEntry(wrapper, width=16, date_pattern='yyyy-mm-dd')
+            picker = DateEntry(row, width=14, date_pattern='yyyy-mm-dd')
             picker.set_date(date.today())
         else:
-            picker = ctk.CTkEntry(wrapper, placeholder_text="yyyy-mm-dd")
+            picker = ctk.CTkEntry(row, placeholder_text="yyyy-mm-dd")
             picker.insert(0, date.today().isoformat())
-        picker.pack(fill="x", pady=(6, 0))
+        picker.pack(side="left", fill="x", expand=True)
+
+        ctk.CTkLabel(input_card, text="Formato: yyyy-mm-dd", font=ctk.CTkFont(size=10), text_color="#6b7280").pack(anchor="w", padx=10, pady=(0, 8))
         return picker
 
     def _on_rango_change(self, selected):

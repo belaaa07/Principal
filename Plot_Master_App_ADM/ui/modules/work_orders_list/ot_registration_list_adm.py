@@ -221,6 +221,14 @@ class ModuloOTs(ctk.CTkFrame):
                                                 border_width=1, border_color="#D0D0D0", fg_color="#FDFDFD")
         self.frame_det.grid(row=0, column=1, padx=(0, 15), pady=15, sticky="nsew")
 
+        # Header destacado con OT y estado
+        self.header_chip = ctk.CTkFrame(self.frame_det, fg_color="#F6F8FA", corner_radius=10)
+        self.header_chip.pack(fill="x", padx=10, pady=(8, 10))
+        self.lbl_ot_chip = ctk.CTkLabel(self.header_chip, text="OT ---", font=("Segoe UI", 15, "bold"), text_color="#1F2937")
+        self.lbl_ot_chip.pack(side="left", padx=10, pady=10)
+        self.lbl_estado_chip = ctk.CTkLabel(self.header_chip, text="---", font=("Segoe UI", 12, "bold"), text_color="#FFFFFF", fg_color="#94A3B8", corner_radius=14, padx=12, pady=8)
+        self.lbl_estado_chip.pack(side="right", padx=10, pady=10)
+
         self.info_container = ctk.CTkFrame(self.frame_det, fg_color="transparent")
         self.info_container.pack(fill="x", padx=10, pady=10)
 
@@ -462,6 +470,13 @@ class ModuloOTs(ctk.CTkFrame):
         d = self.ot_seleccionada
         if not d:
             return
+        estado_texto = d.get('estado') or '---'
+        estado_lower = (estado_texto or '').lower()
+        try:
+            self.lbl_ot_chip.configure(text=f"OT {d.get('ot')}")
+            self._update_estado_chip(estado_lower, estado_texto)
+        except Exception:
+            pass
         self.lbl_ot_nro.configure(text=d['ot'])
         self.lbl_vendedor.configure(text=d['vendedor'])
         self.lbl_cliente.configure(text=d['cliente'])
@@ -495,7 +510,6 @@ class ModuloOTs(ctk.CTkFrame):
         self.lbl_abonado.configure(text=_format_gs(abono))
         self.lbl_saldo.configure(text=_format_gs(d.get('monto', 0) - abono))
 
-        estado_lower = (d.get('estado') or '').lower()
         self._mostrar_fecha_entrega(d.get('fecha_entrega'), estado_lower)
         self._actualizar_boton_cancelar(estado_lower)
         
@@ -556,6 +570,21 @@ class ModuloOTs(ctk.CTkFrame):
         else:
             if self.frame_fecha_entrega.winfo_manager():
                 self.frame_fecha_entrega.pack_forget()
+
+    def _update_estado_chip(self, estado_lower, estado_texto):
+        colores = {
+            'pendiente': '#E74C3C',
+            'aprobado': '#F59E0B',
+            'entregado': '#FACC15',
+            'finalizado': '#22C55E',
+            'cancelado': '#8B5CF6',
+        }
+        color = colores.get(estado_lower, '#94A3B8')
+        texto = estado_texto.title() if isinstance(estado_texto, str) else '---'
+        try:
+            self.lbl_estado_chip.configure(text=texto, fg_color=color)
+        except Exception:
+            pass
 
     def guardar_pago_envio(self):
         if not self.ot_seleccionada:

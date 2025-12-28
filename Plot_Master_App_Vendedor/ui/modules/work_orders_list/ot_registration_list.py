@@ -326,7 +326,7 @@ class OTsFrame(ctk.CTkFrame):
             estado_color = "#EADBF7"  # finalizado (morado claro para vendedor)
         else:
             estado_color = "#BDC3C7"
-        self.lbl_estado_chip.configure(fg_color=estado_color)
+        self.lbl_estado_chip.configure(fg_color=estado_color, text_color="#1F2937")
 
         # --- Actualizar Campo de Envío ---
         self.lbl_envio.configure(text=d['envio'])
@@ -384,11 +384,19 @@ class OTsFrame(ctk.CTkFrame):
                 forma_pago = row.get('forma_pago') or ''
                 estado = normalize_estado(row.get('status'))
                 envio = 'Con Envío' if row.get('solicita_envio') else 'Sin Envío (Retira)'
+                vendedor_txt = (
+                    row.get('vendedor_nombre')
+                    or row.get('vendedor_name')
+                    or row.get('vendedor')
+                    or row.get('vendedor_ci_ruc')
+                    or row.get('ci_ruc_vendedor')
+                    or ''
+                )
                 pagos = row.get('pagos') or []
                 sena = row.get('sena', 0) or 0
                 abonado_total = row.get('abonado_total', 0) or 0
                 mapped.append({
-                    'ot': str(ot_nro), 'fecha': fecha_str, 'vendedor': row.get('vendedor') or '',
+                    'ot': str(ot_nro), 'fecha': fecha_str, 'vendedor': vendedor_txt,
                     'cliente': cliente, 'descripcion': descripcion, 'monto': float(monto) if monto is not None else 0,
                     'pagos': pagos, 'pago': forma_pago, 'estado': estado, 'envio': envio, 'sena': sena, 'abonado_total': abonado_total
                 })

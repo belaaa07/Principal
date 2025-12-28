@@ -60,31 +60,98 @@ class ModuloAccesos(ctk.CTkFrame):
         self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_fila)
         # Asegurar que click del ratón también active la selección en entornos donde el evento virtual no se dispare
         self.tabla.bind("<ButtonRelease-1>", self.al_seleccionar_fila)
-        # Doble click abre edición rápida
-        self.tabla.bind("<Double-1>", lambda e: self.abrir_ventana_editar())
+        # Doble click solo enfoca el formulario lateral (sin modales)
+        self.tabla.bind("<Double-1>", lambda e: self._focus_form())
 
     def crear_panel_control_derecho(self):
         self.frame_det = ctk.CTkFrame(self, width=320, border_width=1, border_color="#D0D0D0", fg_color="white")
         self.frame_det.grid(row=0, column=1, padx=(0, 15), pady=15, sticky="nsew")
 
-        ctk.CTkLabel(self.frame_det, text="GESTIÓN DE USUARIOS", font=("Arial", 14, "bold"), text_color="black").pack(pady=20)
+        ctk.CTkLabel(self.frame_det, text="GESTIÓN DE USUARIOS", font=("Arial", 14, "bold"), text_color="black").pack(pady=(18, 8))
 
         self.lbl_info = ctk.CTkLabel(self.frame_det, text="Seleccione un usuario de la lista", font=("Arial", 11), text_color="gray", wraplength=250)
-        self.lbl_info.pack(pady=10)
+        self.lbl_info.pack(pady=(0, 6))
 
-        ctk.CTkFrame(self.frame_det, height=2, fg_color="#EEEEEE").pack(fill="x", padx=20, pady=20)
+        form = ctk.CTkFrame(self.frame_det, fg_color="#F7F9FB", corner_radius=8)
+        form.pack(fill="x", padx=16, pady=(6, 10))
 
-        self.btn_editar = ctk.CTkButton(self.frame_det, text="✏️ Editar Datos", fg_color="#3498DB", text_color="white", command=self.abrir_ventana_editar, state="disabled")
-        self.btn_editar.pack(pady=10, padx=30, fill="x")
+        self.entry_ci = self._crear_input(form, "CI / RUC:")
+        self.entry_nombre = self._crear_input(form, "Nombre Completo:")
+        self.entry_email = self._crear_input(form, "Email:")
+        self.entry_tel = self._crear_input(form, "Teléfono:")
+        self.entry_zona = self._crear_input(form, "Zona / Ciudad:")
+
+        self.btn_editar = ctk.CTkButton(self.frame_det, text="Guardar cambios", fg_color="#3498DB", text_color="white", command=self.guardar_usuario_lateral, state="disabled")
+        self.btn_editar.pack(pady=8, padx=30, fill="x")
 
         self.btn_refresh = ctk.CTkButton(self.frame_det, text="🔄 Refrescar", fg_color="#7F8C8D", text_color="white", command=self.cargar_usuarios)
-        self.btn_refresh.pack(pady=12, padx=30, fill="x")
+        self.btn_refresh.pack(pady=6, padx=30, fill="x")
+
+        self.lbl_edit_status = ctk.CTkLabel(self.frame_det, text="", font=("Arial", 10), text_color="gray")
+        self.lbl_edit_status.pack(pady=(4, 0))
+
+        # Deshabilitar formulario hasta que haya selección
+        self._set_form_state(False)
+
+    def _crear_input(self, parent, label_text: str):
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=4, padx=10)
+        ctk.CTkLabel(row, text=label_text, anchor="w", font=("Arial", 11, "bold"), text_color="black").pack(fill="x")
+        entry = ctk.CTkEntry(row, width=240, text_color="black")
+        entry.pack(fill="x", pady=(2, 0))
+        return entry
+
+    def _set_form_state(self, enabled: bool):
+        state = "normal" if enabled else "disabled"
+        for ent in (getattr(self, 'entry_ci', None), getattr(self, 'entry_nombre', None), getattr(self, 'entry_email', None), getattr(self, 'entry_tel', None), getattr(self, 'entry_zona', None)):
+            if not ent:
+                continue
+            try:
+                ent.configure(state=state)
+                if not enabled:
+                    ent.delete(0, 'end')
+            except Exception:
+                pass
+        try:
+            self.btn_editar.configure(state="normal" if enabled else "disabled")
+        except Exception:
+            pass
+
+    def _focus_form(self):
+        try:
+            self.entry_nombre.focus_set()
+        except Exception:
+            pass
+
+    def _llenar_form_usuario(self, usuario):
+        self._set_form_state(True)
+        campos = [
+            (self.entry_ci, usuario.get('ci_ruc') or ''),
+            (self.entry_nombre, usuario.get('nombre') or ''),
+            (self.entry_email, usuario.get('email') or ''),
+            (self.entry_tel, usuario.get('telefono') or ''),
+            (self.entry_zona, usuario.get('zona') or ''),
+        ]
+        for entry, valor in campos:
+            try:
+                entry.delete(0, 'end')
+                entry.insert(0, valor)
+            except Exception:
+                pass
 
     def cargar_usuarios(self):
         ok, data = svc.get_all_users()
         self.usuarios = data if ok else []
         if not ok:
             messagebox.showerror("Error", f"No fue posible obtener usuarios: {data}")
+        # Resetear formulario y selección para evitar mostrar datos stale
+        self.usuario_seleccionado = None
+        self._set_form_state(False)
+        self.lbl_info.configure(text="Seleccione un usuario de la lista", text_color="gray")
+        try:
+            self.lbl_edit_status.configure(text="")
+        except Exception:
+            pass
         self.actualizar_tabla_local()
 
     def actualizar_tabla_local(self, e=None):
@@ -135,55 +202,43 @@ class ModuloAccesos(ctk.CTkFrame):
             return
         if self.usuario_seleccionado:
             self.lbl_info.configure(text=f"{self.usuario_seleccionado.get('nombre')}\nCI/RUC: {self.usuario_seleccionado.get('ci_ruc')}", text_color="black")
-            self.btn_editar.configure(state="normal")
+            self._llenar_form_usuario(self.usuario_seleccionado)
+            self.lbl_edit_status.configure(text="Listo para editar", text_color="gray")
 
     def abrir_ventana_editar(self):
+        # Compatibilidad: mantener método pero sin abrir modales
+        self._focus_form()
+
+    def guardar_usuario_lateral(self):
         u = self.usuario_seleccionado
         if not u:
+            messagebox.showinfo("Seleccione usuario", "Elija un usuario en la tabla antes de guardar cambios.")
             return
-        vent = ctk.CTkToplevel(self)
-        vent.title("Editar Usuario")
-        vent.geometry("380x400")
-        vent.attributes("-topmost", True)
-        vent.grab_set()
+        updates = {
+            'nombre': self.entry_nombre.get().strip(),
+            'email': self.entry_email.get().strip(),
+            'telefono': self.entry_tel.get().strip(),
+            'zona': self.entry_zona.get().strip(),
+        }
+        new_ci = self.entry_ci.get().strip()
+        if new_ci and new_ci != (u.get('ci_ruc') or '').strip():
+            updates['ci_ruc'] = new_ci
 
-        ctk.CTkLabel(vent, text="Editar Información", font=("Arial", 14, "bold"), text_color="black").pack(pady=15)
+        if u.get('id'):
+            ok, msg = svc.update_user_by_id(u.get('id'), updates)
+        else:
+            ok, msg = svc.update_user(u.get('ci_ruc'), updates)
 
-        entry_ci = self.crear_campo(vent, "CI / RUC:", u.get('ci_ruc'))
-        entry_nom = self.crear_campo(vent, "Nombre Completo:", u.get('nombre'))
-        # Editable fields limited to CI/RUC, Nombre y Email
-        entry_mail = self.crear_campo(vent, "Email:", u.get('email') or "")
-
-        def guardar():
-            new_ci = entry_ci.get().strip()
-            updates = {
-                'nombre': entry_nom.get().strip(),
-                'email': entry_mail.get().strip(),
-            }
-            # Si se cambió la CI/RUC, incluirlo en el mismo payload para evitar múltiples llamadas
-            if new_ci and new_ci != (u.get('ci_ruc') or '').strip():
-                updates['ci_ruc'] = new_ci
-
-            # Intentar actualizar el registro identificado por id (más fiable) si está disponible
-            if u.get('id'):
-                ok, msg = svc.update_user_by_id(u.get('id'), updates)
-            else:
-                ok, msg = svc.update_user(u.get('ci_ruc'), updates)
-            if ok:
-                messagebox.showinfo("Éxito", "Usuario actualizado correctamente.")
-                vent.destroy()
-                self.cargar_usuarios()
-            else:
-                messagebox.showerror("Error", f"No se pudo actualizar: {msg}")
-
-        ctk.CTkButton(vent, text="Guardar Cambios", command=guardar, fg_color="#27AE60").pack(pady=20)
-
-    def crear_campo(self, parent, label, valor):
-        ctk.CTkLabel(parent, text=label, text_color="black").pack(pady=(5, 0))
-        entry = ctk.CTkEntry(parent, width=300, text_color="black")
-        entry.insert(0, valor or "")
-        entry.pack(pady=5)
-        return entry
+        if ok:
+            messagebox.showinfo("Éxito", "Usuario actualizado correctamente.")
+            # mantener UI en línea con los datos cambiados
+            self.usuario_seleccionado.update(updates)
+            self.lbl_info.configure(text=f"{self.usuario_seleccionado.get('nombre')}\nCI/RUC: {self.usuario_seleccionado.get('ci_ruc', new_ci)}", text_color="black")
+            self.lbl_edit_status.configure(text="Cambios guardados", text_color="#27AE60")
+            self.cargar_usuarios()
+        else:
+            messagebox.showerror("Error", f"No se pudo actualizar: {msg}")
+            self.lbl_edit_status.configure(text="No se guardó", text_color="#C0392B")
 
     def borrar_usuario(self):
         u = self.usuario_seleccionado
