@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
+import threading
 from services.supabase_service import get_all_clients, update_client, get_work_orders_by_client
 
 # --- CONFIGURACIÓN GLOBAL ---
@@ -19,7 +20,7 @@ class ModuloClientes(ctk.CTkFrame):
 
         self.crear_planilla_izquierda()
         self.crear_panel_detalle_derecho()
-        self.cargar_clientes()
+        self._load_clientes_async()
 
     def crear_planilla_izquierda(self):
         # Frame blanco para la tabla
@@ -31,9 +32,10 @@ class ModuloClientes(ctk.CTkFrame):
         
         ctk.CTkLabel(header, text="👤 REGISTRO DE CLIENTES", font=("Arial", 22, "bold"), text_color="black").pack(side="left")
         
+        self._search_after_id = None
         self.entry_busqueda = ctk.CTkEntry(header, placeholder_text="🔍 Buscar cliente...", width=350, text_color="black")
         self.entry_busqueda.pack(side="right")
-        self.entry_busqueda.bind("<KeyRelease>", self.actualizar_tabla)
+        self.entry_busqueda.bind("<KeyRelease>", self._on_search_change)
 
         cont_tabla = ctk.CTkFrame(self.frame_izq, fg_color="transparent")
         cont_tabla.pack(expand=True, fill="both", padx=15, pady=5)
@@ -132,8 +134,17 @@ class ModuloClientes(ctk.CTkFrame):
         cb.pack(side="left")
         return cb
 
+    def _on_search_change(self, _event=None):
+        if getattr(self, '_search_after_id', None):
+            try:
+                self.after_cancel(self._search_after_id)
+            except Exception:
+                pass
+        self._search_after_id = self.after(120, self.actualizar_tabla)
+
     def actualizar_tabla(self, e=None):
-        for i in self.tabla.get_children(): self.tabla.delete(i)
+        for i in self.tabla.get_children():
+            self.tabla.delete(i)
         busq = self.entry_busqueda.get().lower()
         for c in self.clientes:
             nombre = c.get('nombre') or ''
@@ -227,18 +238,34 @@ class ModuloClientes(ctk.CTkFrame):
         ok, msg = update_client(ci, updates)
         if ok:
             messagebox.showinfo("Guardado", "Cliente actualizado correctamente.")
-            self.cargar_clientes()
+            self._load_clientes_async()
         else:
             messagebox.showerror("Error", f"No se pudo actualizar cliente: {msg}")
 
-    def cargar_clientes(self):
-        ok, data = get_all_clients()
+    def _load_clientes_async(self):
+        self._set_loading(True)
+        threading.Thread(target=self._fetch_clientes_background, daemon=True).start()
+
+    def _fetch_clientes_background(self):
+        try:
+            ok, data = get_all_clients()
+        except Exception as exc:
+            ok, data = False, f"Error inesperado: {exc}"
+        self.after(0, lambda: self._apply_clientes(ok, data))
+
+    def _apply_clientes(self, ok, data):
+        self._set_loading(False)
         if not ok:
             messagebox.showwarning("Advertencia", f"No se pudo cargar clientes: {data}")
             return
-        self.clientes = data
+        self.clientes = data or []
         self.actualizar_tabla()
 
-if __name__ == "__main__":
-    app = ModuloClientes()
-    app.mainloop()
+    def _set_loading(self, is_loading: bool):
+        try:
+            state = "disabled" if is_loading else "normal"
+            self.entry_busqueda.configure(state=state)
+        except Exception:
+            pass
+
+# Uso embebido dentro de la aplicación principal. No se ejecuta standalone.

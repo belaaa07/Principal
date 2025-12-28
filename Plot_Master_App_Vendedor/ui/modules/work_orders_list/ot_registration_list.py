@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
 from datetime import datetime
+import threading
 # Usar servicio de BD (obligatorio)
 try:
     from services.supabase_service import get_work_orders_by_vendedor, update_work_order_status
@@ -71,7 +72,7 @@ class OTsFrame(ctk.CTkFrame):
         # Cargar OTs desde BD ahora que la UI está creada
         try:
             if get_work_orders_by_vendedor and self.vendedor:
-                self.cargar_ots_desde_db()
+                self._load_ots_async()
         except Exception:
             pass
 
@@ -93,14 +94,15 @@ class OTsFrame(ctk.CTkFrame):
 
         # Botón de recarga (Actualizar)
         try:
-            self.btn_actualizar = ctk.CTkButton(header, text="Actualizar", width=110, command=self.cargar_ots_desde_db)
+            self.btn_actualizar = ctk.CTkButton(header, text="Actualizar", width=110, command=self._load_ots_async)
             self.btn_actualizar.pack(side="left", padx=6)
         except Exception:
             self.btn_actualizar = None
 
+        self._search_after_id = None
         self.entry_busqueda = ctk.CTkEntry(header, placeholder_text="🔍 Buscar...", width=300)
         self.entry_busqueda.pack(side="right")
-        self.entry_busqueda.bind("<KeyRelease>", self.actualizar_tabla)
+        self.entry_busqueda.bind("<KeyRelease>", self._on_search_change)
 
         # TABLA: contenedor con scroll vertical y horizontal SOLO para la tabla
         cont_tabla_v = ctk.CTkFrame(self.frame_izq, fg_color="transparent")
@@ -282,6 +284,14 @@ class OTsFrame(ctk.CTkFrame):
                     self.refrescar_detalle()
                     break
 
+    def _on_search_change(self, _event=None):
+        if getattr(self, '_search_after_id', None):
+            try:
+                self.after_cancel(self._search_after_id)
+            except Exception:
+                pass
+        self._search_after_id = self.after(120, self.actualizar_tabla)
+
     def al_seleccionar_fila(self, e):
         sel = self.tabla.selection()
         if not sel: return
@@ -346,18 +356,24 @@ class OTsFrame(ctk.CTkFrame):
         self.lbl_abonado.configure(text=_format_gs(abono))
         self.lbl_saldo.configure(text=_format_gs(total_val - abono))
 
-    def cargar_ots_desde_db(self):
-        """Recargar OTs desde el servicio y mapear campos (incluye `sena`)."""
+    def _load_ots_async(self):
+        self._set_loading_state(True)
+        threading.Thread(target=self._fetch_ots_background, daemon=True).start()
+
+    def _fetch_ots_background(self):
         if not get_work_orders_by_vendedor or not self.vendedor:
+            self.after(0, lambda: self._apply_ots_result(True, []))
             return
         try:
             ok, data = get_work_orders_by_vendedor(self.vendedor)
-        except Exception:
-            return
-        if not ok or not isinstance(data, list):
-            return
+        except Exception as exc:
+            ok, data = False, f"Error inesperado: {exc}"
+        mapped = self._map_rows(data) if ok and isinstance(data, list) else data
+        self.after(0, lambda: self._apply_ots_result(ok, mapped))
+
+    def _map_rows(self, rows):
         mapped = []
-        for row in data:
+        for row in rows:
             try:
                 ot_nro = row.get('ot_nro')
                 fecha = row.get('fecha_creacion')
@@ -378,12 +394,28 @@ class OTsFrame(ctk.CTkFrame):
                 })
             except Exception:
                 continue
-        # Orden defensiva: el servicio ya ordena por ot_nro desc, pero asegurar en la UI
         try:
-            self.datos_ots = sorted(mapped, key=lambda x: int(x['ot']) if str(x.get('ot')).isdigit() else 0, reverse=True)
+            return sorted(mapped, key=lambda x: int(x['ot']) if str(x.get('ot')).isdigit() else 0, reverse=True)
         except Exception:
-            self.datos_ots = mapped
+            return mapped
+
+    def _apply_ots_result(self, ok, payload):
+        self._set_loading_state(False)
+        if not ok:
+            messagebox.showwarning("Advertencia", f"No se pudo cargar OTs: {payload}")
+            return
+        self.datos_ots = payload or []
         self.actualizar_tabla()
+
+    def _set_loading_state(self, is_loading: bool):
+        btn = getattr(self, 'btn_actualizar', None)
+        if not btn:
+            return
+        try:
+            btn.configure(state="disabled" if is_loading else "normal")
+            btn.configure(text="Actualizando..." if is_loading else "Actualizar")
+        except Exception:
+            pass
 
     def abrir_ventana_pago(self):
         # Vendedores no pueden abrir modal de pago

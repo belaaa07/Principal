@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
 from datetime import datetime
+import threading
 from services.supabase_service import (
     add_sena_to_order,
     cancel_work_order,
@@ -74,6 +75,8 @@ class ModuloOTs(ctk.CTkFrame):
         self.datos_ots = []
         self.ot_seleccionada = None
         self.admin_context = admin_context or {}
+        # Cache de detalles para minimizar llamadas repetidas a Supabase
+        self.detalle_cache = {}
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
@@ -81,8 +84,7 @@ class ModuloOTs(ctk.CTkFrame):
 
         self.crear_planilla_izquierda()
         self.crear_detalle_derecha()
-        # Cargar datos
-        self.cargar_ots_desde_db()
+        self._load_ots_async()
 
     def crear_planilla_izquierda(self):
         self.frame_izq = ctk.CTkFrame(self, fg_color="white", corner_radius=10, border_width=1, border_color="#D0D0D0")
@@ -101,14 +103,15 @@ class ModuloOTs(ctk.CTkFrame):
         self.combo_filtro.pack(side="left", padx=20)
         # Botón actualizar (recarga desde BD)
         try:
-            self.btn_actualizar = ctk.CTkButton(header, text="Actualizar", width=110, command=self.cargar_ots_desde_db)
+            self.btn_actualizar = ctk.CTkButton(header, text="Actualizar", width=110, command=self._load_ots_async)
             self.btn_actualizar.pack(side="left", padx=6)
         except Exception:
             self.btn_actualizar = None
 
+        self._search_after_id = None
         self.entry_busqueda = ctk.CTkEntry(header, placeholder_text="🔍 Buscar...", width=300)
         self.entry_busqueda.pack(side="right")
-        self.entry_busqueda.bind("<KeyRelease>", self.actualizar_tabla)
+        self.entry_busqueda.bind("<KeyRelease>", self._on_search_change)
 
         cont_tabla_v = ctk.CTkFrame(self.frame_izq, fg_color="transparent")
         cont_tabla_v.pack(expand=True, fill="both", padx=15, pady=(0, 5))
@@ -146,16 +149,30 @@ class ModuloOTs(ctk.CTkFrame):
         self.tabla.bind("<<TreeviewSelect>>", self.al_seleccionar_fila)
         self.actualizar_tabla()
 
-    def cargar_ots_desde_db(self):
-        ok, data = get_all_work_orders()
-        if not ok:
-            messagebox.showwarning("Advertencia", f"No se pudo cargar OTs: {data}")
-            return
-        # Mapear a estructura interna usada por la UI
+    def _on_search_change(self, _event=None):
+        if self._search_after_id:
+            try:
+                self.after_cancel(self._search_after_id)
+            except Exception:
+                pass
+        self._search_after_id = self.after(120, self.actualizar_tabla)
+
+    def _load_ots_async(self):
+        self._set_loading_state(True)
+        threading.Thread(target=self._fetch_ots_background, daemon=True).start()
+
+    def _fetch_ots_background(self):
+        try:
+            ok, data = get_all_work_orders()
+        except Exception as exc:
+            ok, data = False, f"Error inesperado: {exc}"
+        mapped = self._map_ots(data) if ok else data
+        self.after(0, lambda: self._apply_ots_result(ok, mapped))
+
+    def _map_ots(self, data_rows):
         mapped = []
-        for r in data:
+        for r in data_rows:
             status_val = (r.get('status') or '').strip().lower()
-            # Administrador nunca debe ver OTs rechazadas
             if status_val == 'rechazado':
                 continue
             envia_flag = bool(r.get('solicita_envio'))
@@ -175,8 +192,26 @@ class ModuloOTs(ctk.CTkFrame):
                 'solicita_envio': envia_flag,
                 'fecha_entrega': r.get('fecha_entrega'),
             })
-        self.datos_ots = mapped
+        return mapped
+
+    def _apply_ots_result(self, ok, payload):
+        self._set_loading_state(False)
+        if not ok:
+            messagebox.showwarning("Advertencia", f"No se pudo cargar OTs: {payload}")
+            return
+        self.datos_ots = payload
+        self.detalle_cache.clear()
         self.actualizar_tabla()
+
+    def _set_loading_state(self, is_loading: bool):
+        btn = getattr(self, 'btn_actualizar', None)
+        if not btn:
+            return
+        try:
+            btn.configure(state="disabled" if is_loading else "normal")
+            btn.configure(text="Actualizando..." if is_loading else "Actualizar")
+        except Exception:
+            pass
 
     def crear_detalle_derecha(self):
         self.frame_det = ctk.CTkScrollableFrame(self, width=350, label_text="DETALLE DE LA ORDEN", 
@@ -309,19 +344,24 @@ class ModuloOTs(ctk.CTkFrame):
         id_ot = str(self.tabla.item(sel[0])['values'][0])
         self.ot_seleccionada = next((x for x in self.datos_ots if x["ot"] == id_ot), None)
         if self.ot_seleccionada:
-            # Solicitar detalle completo (incluye historial de abonos)
-            try:
-                ok, detalle = get_work_order_by_ot(self.ot_seleccionada.get('ot'))
-                if ok and detalle:
-                    self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
-                    self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
-                    self.ot_seleccionada['fecha_entrega'] = detalle.get('fecha_entrega', self.ot_seleccionada.get('fecha_entrega'))
-                    self.ot_seleccionada['solicita_envio'] = detalle.get('solicita_envio', self.ot_seleccionada.get('solicita_envio', False))
-                    envio_flag = bool(self.ot_seleccionada.get('solicita_envio'))
-                    self.ot_seleccionada['envio'] = _envio_label_from_flag(envio_flag)
-                    self.ot_seleccionada['pago'] = detalle.get('forma_pago', self.ot_seleccionada.get('pago'))
-            except Exception:
-                pass
+            detalle = self.detalle_cache.get(id_ot)
+            if not detalle:
+                # Solicitar detalle completo (incluye historial de abonos)
+                try:
+                    ok, detalle = get_work_order_by_ot(self.ot_seleccionada.get('ot'))
+                    if ok and detalle:
+                        self.detalle_cache[id_ot] = detalle
+                except Exception:
+                    detalle = None
+
+            if detalle:
+                self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
+                self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
+                self.ot_seleccionada['fecha_entrega'] = detalle.get('fecha_entrega', self.ot_seleccionada.get('fecha_entrega'))
+                self.ot_seleccionada['solicita_envio'] = detalle.get('solicita_envio', self.ot_seleccionada.get('solicita_envio', False))
+                envio_flag = bool(self.ot_seleccionada.get('solicita_envio'))
+                self.ot_seleccionada['envio'] = _envio_label_from_flag(envio_flag)
+                self.ot_seleccionada['pago'] = detalle.get('forma_pago', self.ot_seleccionada.get('pago'))
             self.refrescar_detalle()
 
     def actualizar_precio_total(self):
@@ -332,6 +372,8 @@ class ModuloOTs(ctk.CTkFrame):
             ok, msg = update_work_order_value(ot_n, int(nuevo_m))
             if ok:
                 self.ot_seleccionada['monto'] = int(nuevo_m)
+                # Invalidar cache para forzar recarga con datos frescos
+                self.detalle_cache.pop(str(ot_n), None)
                 self.refrescar_detalle()
                 self.actualizar_tabla()
             else:
@@ -530,6 +572,7 @@ class ModuloOTs(ctk.CTkFrame):
             messagebox.showerror("Error", f"Algunos cambios no se pudieron guardar: {'; '.join(errors)}")
         else:
             messagebox.showinfo("Actualizado", "Cambios guardados correctamente.")
+            self.detalle_cache.pop(str(self.ot_seleccionada.get('ot')), None)
         self.refrescar_detalle(); self.actualizar_tabla()
 
     def abrir_ventana_pago(self):
@@ -548,6 +591,7 @@ class ModuloOTs(ctk.CTkFrame):
                 if ok_det and detalle:
                     self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
                     self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
+                    self.detalle_cache[ot_n] = detalle
                 else:
                     # Fallback: añadir en memoria si la consulta falla
                     self.ot_seleccionada.setdefault('pagos', []).append({"m": m, "f": datetime.now().strftime("%d/%m/%y")})
@@ -571,6 +615,7 @@ class ModuloOTs(ctk.CTkFrame):
             if ok_det and detalle:
                 self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
                 self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
+                self.detalle_cache[ot_n] = detalle
                 self.refrescar_detalle(); self.actualizar_tabla()
             else:
                 messagebox.showwarning("Advertencia", "No se pudo obtener el historial de pagos para esta OT.")
@@ -589,6 +634,7 @@ class ModuloOTs(ctk.CTkFrame):
             if ok:
                 # Mantener la presentación en UI con Title-case
                 self.ot_seleccionada['estado'] = estado_db if isinstance(estado_db, str) else nuevo_estado
+                self.detalle_cache.pop(str(ot_n), None)
                 self.actualizar_tabla()
                 self.refrescar_detalle()
             else:
@@ -647,6 +693,7 @@ class ModuloOTs(ctk.CTkFrame):
             if ok:
                 self.ot_seleccionada['estado'] = 'Entregado'
                 self.ot_seleccionada['fecha_entrega'] = fecha_payload
+                self.detalle_cache.pop(str(self.ot_seleccionada.get('ot')), None)
                 win.destroy()
                 self.actualizar_tabla()
                 self.refrescar_detalle()
@@ -681,6 +728,7 @@ class ModuloOTs(ctk.CTkFrame):
                     d['estado'] = 'Cancelado'
             if self.ot_seleccionada and self.ot_seleccionada.get('ot') == ot_nro:
                 self.ot_seleccionada['estado'] = 'Cancelado'
+            self.detalle_cache.pop(str(ot_nro), None)
             messagebox.showinfo("Cancelada", "La orden fue cancelada correctamente.")
             self.actualizar_tabla()
             self.refrescar_detalle()
@@ -701,13 +749,15 @@ class ModuloOTs(ctk.CTkFrame):
 
     def rechazar_ot(self):
         if self.ot_seleccionada:
-            if messagebox.askyesno("Confirmar", f"¿Está seguro de rechazar la OT {self.ot_seleccionada['ot']}? Esto marcará la OT como rechazada."):
-                ok, msg = update_work_order_status(self.ot_seleccionada.get('ot'), 'Rechazado')
+            ot_nro = self.ot_seleccionada.get('ot')
+            if messagebox.askyesno("Confirmar", f"¿Está seguro de rechazar la OT {ot_nro}? Esto marcará la OT como rechazada."):
+                ok, msg = update_work_order_status(ot_nro, 'Rechazado')
                 if ok:
                     # actualizar localmente y ocultarla del listado del admin
                     self.ot_seleccionada['estado'] = 'Rechazado'
-                    self.datos_ots = [d for d in self.datos_ots if d.get('ot') != self.ot_seleccionada.get('ot')]
+                    self.datos_ots = [d for d in self.datos_ots if d.get('ot') != ot_nro]
                     self.ot_seleccionada = None
+                    self.detalle_cache.pop(str(ot_nro), None)
                     self.actualizar_tabla()
                     # Limpiar textos de detalle
                     self.lbl_ot_nro.configure(text="---")

@@ -198,10 +198,4 @@ class ModuloAccesos(ctk.CTkFrame):
                 messagebox.showerror("Error", f"No se pudo eliminar: {msg}")
 
 
-if __name__ == "__main__":
-    # ejecución rápida de prueba
-    root = ctk.CTk()
-    root.geometry("1100x700")
-    frame = ModuloAccesos(root)
-    frame.pack(expand=True, fill='both')
-    root.mainloop()
+# Uso embebido; no se ejecuta standalone en producción.

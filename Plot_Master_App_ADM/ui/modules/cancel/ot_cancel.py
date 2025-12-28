@@ -105,28 +105,4 @@ class VentanaCancelacion(ctk.CTkToplevel):
         self.callback_confirmar(datos)
         self.destroy()
 
-# --- CLASE PRINCIPAL PARA EJECUTAR EL PROGRAMA ---
-class App(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-        self.title("Sistema Plot Master")
-        self.geometry("400x300")
-        
-        # Botón inicial para abrir el módulo
-        self.btn_inicio = ctk.CTkButton(self, text="❌ Cancelar Orden", 
-                                        fg_color="#FADBD8", text_color="#C0392B",
-                                        font=("Segoe UI", 14, "bold"),
-                                        command=self.abrir_modulo)
-        self.btn_inicio.pack(expand=True)
-
-    def abrir_modulo(self):
-        # OT de ejemplo
-        VentanaCancelacion(self, "1050", self.resultado_final)
-
-    def resultado_final(self, datos):
-        print(f"Orden cancelada: {datos}")
-        messagebox.showinfo("Éxito", f"Orden {datos['ot']} cancelada correctamente.")
-
-if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+# Uso embebido dentro del módulo de OTs; se elimina el runner standalone.

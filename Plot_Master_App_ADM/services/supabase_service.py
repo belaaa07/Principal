@@ -1,4 +1,5 @@
 import os
+import time
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import hashlib
@@ -33,6 +34,25 @@ def init_supabase_client():
 
 # Inicializar el cliente una sola vez para ser usado en todo el módulo
 supabase = init_supabase_client()
+
+# Cache simple para datos referenciales (usuarios/clientes) con TTL corto
+_LOOKUP_TTL_SECONDS = 90
+_lookup_cache = {
+    'expires_at': 0.0,
+    'clientes': {},
+    'usuarios': {},
+}
+
+
+def _reset_lookup_cache():
+    _lookup_cache['clientes'].clear()
+    _lookup_cache['usuarios'].clear()
+    _lookup_cache['expires_at'] = time.time() + _LOOKUP_TTL_SECONDS
+
+
+def _ensure_lookup_cache():
+    if time.time() > _lookup_cache['expires_at']:
+        _reset_lookup_cache()
 
 
 # --- FUNCIONES PARA INTERACTUAR CON LA BASE DE DATOS ---
@@ -103,25 +123,54 @@ def get_client_id_by_ci_ruc(ci_ruc: str):
 def get_clients_by_ids(ids: list):
     """Devuelve un dict id->cliente_row para los ids provistos."""
     if not supabase or not ids: return {}
+    _ensure_lookup_cache()
+    result = {}
+    missing = []
+    # Evitar ids duplicados y aprovechar cache en memoria para lecturas repetidas
+    for cid in set(ids):
+        if cid in _lookup_cache['clientes']:
+            result[cid] = _lookup_cache['clientes'][cid]
+        else:
+            missing.append(cid)
+    if not missing:
+        return result
     try:
-        resp = supabase.table('clientes').select('*').in_('id', ids).execute()
+        resp = supabase.table('clientes').select('*').in_('id', missing).execute()
         rows = resp.data or []
-        return {r.get('id'): r for r in rows}
+        for r in rows:
+            cid = r.get('id')
+            _lookup_cache['clientes'][cid] = r
+            result[cid] = r
+        return result
     except Exception as e:
         print(f"Error al obtener clientes por ids: {e}")
-        return {}
+        return result
 
 
 def get_users_by_ids(ids: list):
     """Devuelve un dict id->usuario_row para los ids provistos (tabla usuarios)."""
     if not supabase or not ids: return {}
+    _ensure_lookup_cache()
+    result = {}
+    missing = []
+    for uid in set(ids):
+        if uid in _lookup_cache['usuarios']:
+            result[uid] = _lookup_cache['usuarios'][uid]
+        else:
+            missing.append(uid)
+    if not missing:
+        return result
     try:
-        resp = supabase.table('usuarios').select('*').in_('id', ids).execute()
+        resp = supabase.table('usuarios').select('*').in_('id', missing).execute()
         rows = resp.data or []
-        return {r.get('id'): r for r in rows}
+        for r in rows:
+            uid = r.get('id')
+            _lookup_cache['usuarios'][uid] = r
+            result[uid] = r
+        return result
     except Exception as e:
         print(f"Error al obtener usuarios por ids: {e}")
-        return {}
+        return result
 
 def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str, email: str = None):
     """Inserta un nuevo cliente en la base de datos."""
@@ -137,6 +186,7 @@ def insert_client(nombre: str, ci_ruc: str, telefono: str, zona: str, email: str
         }).execute()
         if hasattr(response, 'error') and response.error:
             return False, str(response.error)
+        _reset_lookup_cache()
         return True, "Cliente guardado correctamente."
     except Exception as e:
         # Manejar error de duplicado de CI/RUC
@@ -174,6 +224,7 @@ def update_user_by_id(user_id, updates: dict):
                 val_db = row.get(k)
                 if (val_db or '') != (v or ''):
                     return False, f"Campo '{k}' no se actualizó correctamente. Esperado: '{v}', DB: '{val_db}'"
+            _reset_lookup_cache()
             return True, "Usuario actualizado"
         except Exception as e:
             print(f"Error verificando actualización por id: {e}")
@@ -269,7 +320,14 @@ def create_admin(nombre: str, ci_ruc: str, password: str, email: str = None, est
 def get_all_work_orders():
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
-        response = supabase.table('ordenes_trabajo').select('*').order('ot_nro', desc=True).execute()
+        # Seleccionamos solo las columnas necesarias para reducir ancho de banda
+        response = (
+            supabase
+            .table('ordenes_trabajo')
+            .select('id,ot_nro,cliente_id,vendedor_id,descripcion,valor_total,sena,abonado_total,forma_pago,solicita_envio,status,fecha_creacion,fecha_entrega,created_at')
+            .order('ot_nro', desc=True)
+            .execute()
+        )
         data = response.data or []
         # Enriquecer con nombres de cliente y vendedor (si vienen ids)
         cliente_ids = list({d.get('cliente_id') for d in data if d.get('cliente_id')})
@@ -298,10 +356,75 @@ def get_all_work_orders():
         return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
 
 
+def get_finalized_work_orders_between(fecha_desde, fecha_hasta, sort_desc=False):
+    """Obtiene OTs finalizadas entre dos fechas (inclusive) ordenadas por fecha de creación.
+
+    fecha_desde / fecha_hasta aceptan date, datetime o string ISO (yyyy-mm-dd).
+    sort_desc=True ordena descendente; por defecto ascendente para lectura cronológica.
+    """
+    if not supabase:
+        return False, "No hay conexión con la base de datos."
+
+    try:
+        f_ini = _format_date_value(fecha_desde)
+        f_fin = _format_date_value(fecha_hasta)
+        if not f_ini or not f_fin:
+            return False, "Fechas inválidas o faltantes."
+
+        qb = (
+            supabase
+            .table('ordenes_trabajo')
+            .select('id,ot_nro,cliente_id,vendedor_id,descripcion,valor_total,abonado_total,forma_pago,solicita_envio,status,fecha_creacion,fecha_entrega,created_at')
+            .eq('status', 'Finalizado')
+            .gte('fecha_creacion', f_ini)
+            .lte('fecha_creacion', f_fin)
+            .order('fecha_creacion', desc=bool(sort_desc))
+        )
+        resp = qb.execute()
+        rows = resp.data or []
+
+        cliente_ids = list({r.get('cliente_id') for r in rows if r.get('cliente_id')})
+        vendedor_ids = list({r.get('vendedor_id') for r in rows if r.get('vendedor_id')})
+        clientes = get_clients_by_ids(cliente_ids)
+        vendedores = get_users_by_ids(vendedor_ids)
+
+        enriched = []
+        for r in rows:
+            cid = r.get('cliente_id')
+            vid = r.get('vendedor_id')
+            enriched.append({
+                'ot_nro': r.get('ot_nro'),
+                'fecha_creacion': _format_date_value(r.get('fecha_creacion') or r.get('created_at')),
+                'fecha_entrega': _format_date_value(r.get('fecha_entrega')),
+                'cliente': clientes.get(cid, {}).get('nombre') or clientes.get(cid, {}).get('ci_ruc') or '',
+                'cliente_ci_ruc': clientes.get(cid, {}).get('ci_ruc') or '',
+                'vendedor': vendedores.get(vid, {}).get('nombre') or vendedores.get(vid, {}).get('ci_ruc') or '',
+                'vendedor_ci_ruc': vendedores.get(vid, {}).get('ci_ruc') or '',
+                'descripcion': r.get('descripcion') or '',
+                'valor_total': float(r.get('valor_total') or 0),
+                'abonado_total': float(r.get('abonado_total') or 0),
+                'forma_pago': r.get('forma_pago') or '',
+                'solicita_envio': bool(r.get('solicita_envio')),
+                'status': r.get('status') or '',
+            })
+
+        return True, enriched
+    except Exception as e:
+        print(f"Error al obtener reporte de OTs finalizadas: {e}")
+        return False, f"Error al obtener OTs finalizadas: {e}"
+
+
 def get_work_order_by_ot(ot_nro):
     if not supabase: return False, "No hay conexión con la base de datos."
     try:
-        response = supabase.table('ordenes_trabajo').select('*').eq('ot_nro', ot_nro).limit(1).execute()
+        response = (
+            supabase
+            .table('ordenes_trabajo')
+            .select('id,ot_nro,cliente_id,vendedor_id,descripcion,valor_total,sena,abonado_total,forma_pago,solicita_envio,status,fecha_creacion,fecha_entrega,created_at')
+            .eq('ot_nro', ot_nro)
+            .limit(1)
+            .execute()
+        )
         row = (response.data[0] if response.data else None)
         if not row:
             return True, None
@@ -583,6 +706,7 @@ def update_user(ci_ruc, updates: dict):
                     continue
                 if (row.get(k) or '') != (v or ''):
                     return False, f"Campo '{k}' no se actualizó correctamente. Esperado: '{v}', DB: '{row.get(k)}'"
+            _reset_lookup_cache()
             return True, "Usuario actualizado"
         except Exception as e:
             print(f"Error verificando actualización por CI/RUC: {e}")
@@ -601,6 +725,7 @@ def delete_user(ci_ruc: str):
             return False, str(response.error)
         if not getattr(response, 'data', None):
             return False, "No se eliminó ningún usuario (CI/RUC no encontrado o sin permisos)."
+        _reset_lookup_cache()
         return True, "Usuario eliminado"
     except Exception as e:
         print(f"Error al eliminar usuario: {e}")
@@ -615,6 +740,7 @@ def update_client(ci_ruc, updates: dict):
             return False, str(response.error)
         if not getattr(response, 'data', None):
             return False, "No se actualizó ningún cliente (CI/RUC no encontrado o sin permisos)."
+        _reset_lookup_cache()
         return True, "Cliente actualizado"
     except Exception as e:
         print(f"Error al actualizar cliente: {e}")
@@ -630,6 +756,7 @@ def delete_client(ci_ruc: str):
             return False, str(response.error)
         if not getattr(response, 'data', None):
             return False, "No se eliminó ningún cliente (CI/RUC no encontrado o sin permisos)."
+        _reset_lookup_cache()
         return True, "Cliente eliminado"
     except Exception as e:
         print(f"Error al eliminar cliente: {e}")
