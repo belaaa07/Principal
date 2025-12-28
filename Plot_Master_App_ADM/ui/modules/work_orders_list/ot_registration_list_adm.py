@@ -77,6 +77,9 @@ class ModuloOTs(ctk.CTkFrame):
         self.admin_context = admin_context or {}
         # Cache de detalles para minimizar llamadas repetidas a Supabase
         self.detalle_cache = {}
+        # Control de carga de detalle para no bloquear la UI
+        self._detalle_request_id = 0
+        self._detalle_inflight_ot = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=0)
@@ -250,6 +253,9 @@ class ModuloOTs(ctk.CTkFrame):
         self.btn_guardar_pago_envio = ctk.CTkButton(self.frame_det, text="Guardar datos", height=35, fg_color="#2980B9", command=self.guardar_pago_envio)
         self.btn_guardar_pago_envio.pack(pady=5, fill="x", padx=10)
 
+        self.lbl_detalle_status = ctk.CTkLabel(self.frame_det, text="", font=("Arial", 10), text_color="#6B7280")
+        self.lbl_detalle_status.pack(fill="x", padx=10)
+
         self.crear_separador()
 
         header_ab = ctk.CTkFrame(self.frame_det, fg_color="transparent")
@@ -340,29 +346,63 @@ class ModuloOTs(ctk.CTkFrame):
 
     def al_seleccionar_fila(self, e):
         sel = self.tabla.selection()
-        if not sel: return
+        if not sel:
+            return
         id_ot = str(self.tabla.item(sel[0])['values'][0])
         self.ot_seleccionada = next((x for x in self.datos_ots if x["ot"] == id_ot), None)
-        if self.ot_seleccionada:
-            detalle = self.detalle_cache.get(id_ot)
-            if not detalle:
-                # Solicitar detalle completo (incluye historial de abonos)
-                try:
-                    ok, detalle = get_work_order_by_ot(self.ot_seleccionada.get('ot'))
-                    if ok and detalle:
-                        self.detalle_cache[id_ot] = detalle
-                except Exception:
-                    detalle = None
+        if not self.ot_seleccionada:
+            return
 
-            if detalle:
-                self.ot_seleccionada['pagos'] = detalle.get('pagos', [])
-                self.ot_seleccionada['abonado_total'] = detalle.get('abonado_total', self.ot_seleccionada.get('abonado_total', 0))
-                self.ot_seleccionada['fecha_entrega'] = detalle.get('fecha_entrega', self.ot_seleccionada.get('fecha_entrega'))
-                self.ot_seleccionada['solicita_envio'] = detalle.get('solicita_envio', self.ot_seleccionada.get('solicita_envio', False))
-                envio_flag = bool(self.ot_seleccionada.get('solicita_envio'))
-                self.ot_seleccionada['envio'] = _envio_label_from_flag(envio_flag)
-                self.ot_seleccionada['pago'] = detalle.get('forma_pago', self.ot_seleccionada.get('pago'))
+        cached = self.detalle_cache.get(id_ot)
+        if cached:
+            self._merge_detalle_data(self.ot_seleccionada, cached)
             self.refrescar_detalle()
+            self._set_detalle_status("Detalle desde caché", "#6B7280")
+            return
+
+        # Mostrar datos básicos al instante y cargar detalle en background
+        self.refrescar_detalle()
+        self._detalle_request_id += 1
+        req_id = self._detalle_request_id
+        self._detalle_inflight_ot = id_ot
+        self._set_detalle_status("Cargando detalle…", "#6B7280")
+
+        threading.Thread(target=self._fetch_detalle_async, args=(id_ot, req_id), daemon=True).start()
+
+    def _fetch_detalle_async(self, id_ot, req_id):
+        try:
+            ok, detalle = get_work_order_by_ot(id_ot)
+        except Exception as exc:
+            ok, detalle = False, f"Error inesperado: {exc}"
+        self.after(0, lambda: self._apply_detalle_async(id_ot, req_id, ok, detalle))
+
+    def _apply_detalle_async(self, id_ot, req_id, ok, detalle):
+        # Descartar respuestas obsoletas
+        if req_id != self._detalle_request_id or id_ot != self._detalle_inflight_ot:
+            return
+        if not ok or not detalle:
+            self._set_detalle_status("No se pudo cargar el detalle", "#B91C1C")
+            return
+        self.detalle_cache[id_ot] = detalle
+        if self.ot_seleccionada and str(self.ot_seleccionada.get("ot")) == str(id_ot):
+            self._merge_detalle_data(self.ot_seleccionada, detalle)
+            self.refrescar_detalle()
+            self._set_detalle_status("Detalle actualizado", "#059669")
+
+    def _merge_detalle_data(self, base, detalle):
+        base['pagos'] = detalle.get('pagos', [])
+        base['abonado_total'] = detalle.get('abonado_total', base.get('abonado_total', 0))
+        base['fecha_entrega'] = detalle.get('fecha_entrega', base.get('fecha_entrega'))
+        base['solicita_envio'] = detalle.get('solicita_envio', base.get('solicita_envio', False))
+        envio_flag = bool(base.get('solicita_envio'))
+        base['envio'] = _envio_label_from_flag(envio_flag)
+        base['pago'] = detalle.get('forma_pago', base.get('pago'))
+
+    def _set_detalle_status(self, text, color):
+        try:
+            self.lbl_detalle_status.configure(text=text, text_color=color)
+        except Exception:
+            pass
 
     def actualizar_precio_total(self):
         if not self.ot_seleccionada: return
