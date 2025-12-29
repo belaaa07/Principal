@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.env.*
+.venv/
+venv/
+
+# VS Code / IDE
+.vscode/
+.idea/
+
+# Builds
+build/
+dist/
+*.spec
+*.exe
+*.msi
+
+# Packaging / cache
+*.egg-info/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.coverage*
+htmlcov/
+
+# OS clutter
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+*.tmp
+*.bak

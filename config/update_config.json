@@ -1,0 +1,26 @@
+{
+  "apps": {
+    "admin": {
+      "local_version_file": "config/admin_version.json",
+      "github": {
+        "repo": "belaaa07/Principal",
+        "tag_prefix": "v",
+        "asset_name_template": "PlotMaster_Admin_v{version}.exe"
+      },
+      "remote_version_url": "config/remote_versions/admin_version.json",
+      "download_url_template": "",
+      "update_temp_dir": "build/updates/admin"
+    },
+    "vendor": {
+      "local_version_file": "config/vendor_version.json",
+      "github": {
+        "repo": "belaaa07/Principal",
+        "tag_prefix": "v",
+        "asset_name_template": "PlotMaster_Vendedor_v{version}.exe"
+      },
+      "remote_version_url": "config/remote_versions/vendor_version.json",
+      "download_url_template": "",
+      "update_temp_dir": "build/updates/vendor"
+    }
+  }
+}
