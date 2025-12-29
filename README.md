@@ -1,70 +1,42 @@
-# Plot Master (Administrador y Vendedor)
+# Plot Master
 
-Proyecto existente dividido en dos aplicaciones de escritorio (Administrador y Vendedor) con UI en CustomTkinter y backend en Supabase. No se agregan nuevas features: el foco es ordenar, unificar y dejar listo para versionado, build a .exe y futuro auto-update.
+Plot Master es una aplicación de escritorio pensada para operar de forma local con dos interfaces independientes: la consola del Administrador y la experiencia del Vendedor. Toda la lógica corre desde el código fuente sin depender de actualizaciones automáticas ni servicios externos de publicación.
 
-## Estructura actual
-```
-.
-├─ plotmaster/
-│  ├─ apps/
-│  │  ├─ admin/           # Entrypoint y UI admin (main.py, vistas admin)
-│  │  └─ vendor/          # Entrypoint y UI vendedor (main.py, vistas vendedor)
-│  └─ core/               # Lógica compartida
-│     ├─ services/        # supabase_service.py unificado
-│     ├─ ui/              # (placeholder) widgets/temas reutilizables
-│     ├─ config/          # (placeholder) settings/env
-│     └─ utils/           # (placeholder)
-├─ updater/               # Cliente de actualización: check version.json remoto, descarga y swap de .exe
-├─ assets/                # Íconos, fuentes, imágenes
-├─ config/                # Archivos de config deploy (env.example, pyinstaller specs, version.json plantilla)
-├─ docs/                  # Documentación mínima
-├─ scripts/               # Scripts de build/packaging (pyinstaller, checksum)
-├─ build/                 # Salida temporal (git ignored)
-├─ dist/                  # Salida de ejecutables (git ignored)
-└─ README.md
-```
+## Requisitos previos
 
-## Qué queda igual (funcionalidad)
+- Python 3.10 o superior.
+- Un entorno virtual (recomendado) y las dependencias instaladas con `pip install -r requirements.txt`.
+- PyInstaller solo es necesario si se quiere generar un ejecutable (`generar_exe.py`).
 
-## Configuración rápida (estado actual)
-## Configuración rápida (estado actual)
-- Python 3.10+.
-- Instalar dependencias: `pip install -r requirements.txt`.
-- Variables Supabase en `.env` (o en `plotmaster/apps/admin/.env` y `plotmaster/apps/vendor/.env`): `SUPABASE_URL`, `SUPABASE_KEY`. Ejemplo en `config/env.example`.
-- Ejecutar hoy (desde la raíz):
-	- Admin: `python -m plotmaster.apps.admin.main`
-	- Vendedor: `python -m plotmaster.apps.vendor.main`
+## Estructura clave
 
-## Scripts de trabajo
-- Desarrollo rápido: `python ejecutar.py` abre un menú y lanza Admin o Vendedor en modo módulo (sin generar .exe).
-- Publicación automatizada: `python publicar.py` pregunta la app y la versión (v1.4.0), actualiza `config/*_version.json` y `config/remote_versions/*.json`, elimina builds previos, corre PyInstaller (spec con `onefile`) y copia el ejecutable versionado sin carpeta `internal` a `releases/access/`.
-- Los .exe generados quedan nombrados como `PlotMaster_Admin_vX.Y.Z.exe` o `PlotMaster_Vendedor_vX.Y.Z.exe`, listos para subir a GitHub Releases y compatibles con el actualizador existente.
+- `assets/`: recursos gráficos y archivos estáticos que consumen los módulos de interfaz.
+- `plotmaster/`: paquete principal con los módulos de Administrador y Vendedor.
+- `ejecutar.py`: lanzador mínimo que muestra un menú y arranca la aplicación elegida.
+- `generar_exe.py`: script dedicado para empaquetar cada aplicación con PyInstaller.
+- `schema_db.sql`: esqueleto de la base de datos usada por la aplicación.
+- `.env.example`: variables de entorno que deben copiarse a `.env` para inyectar llaves de Supabase u otras credenciales.
 
-## Unificación de código (estado)
-## Build a .exe (PyInstaller)
-- Specs listos: `scripts/pyinstaller_admin.spec` y `scripts/pyinstaller_vendor.spec`.
-- Ejecutar desde la raíz:
-	- `pyinstaller scripts/pyinstaller_admin.spec`
-	- `pyinstaller scripts/pyinstaller_vendor.spec`
-- Ambos specs ahora definen `onefile=True`, por lo que `dist/PlotMaster_* .exe` se genera como único binario sin carpeta `internal`.
-- Salidas: `dist/` (git-ignored). Ajusta `datas` si agregas assets.
+## Configuración del entorno
 
-## Build a .exe (PyInstaller)
-## Auto-update (listo para GitHub)
-- Cada `main.py` arranca llamando `updater.check_for_updates("admin")` o `updater.check_for_updates("vendor")` antes de crear la UI, de modo que la app siempre chequea si hay una versión más reciente en GitHub.
-- La configuración de `config/update_config.json` define el repo de GitHub (`github.repo`), el prefijo de tag (normalmente `v`) y el nombre del asset que se debe descargar (`asset_name_template`). También mantiene las rutas de versión local (`config/*.json`) y los archivos de versión remotos de ejemplo bajo `config/remote_versions/` para pruebas offline. Por defecto `github.repo` está vacío para que los chequeos funcionen localmente; reemplazalo con tu `<usuario>/<repo>` real cuando publiques releases.
-- Cuando se detecta una versión nueva, el gestor descarga el `.exe` correspondiente a `build/updates/{app}/{app}_{version}.exe`, guarda un `pending_<app>.json` y registra la URL del asset. Ese archivo impide que se vuelva a descargar varias veces y sirve de base para un swapper futuro.
-- `python -m updater --app admin` (o `vendor`) ejecuta el mismo chequeo manualmente; usa `PLOTMASTER_SKIP_UPDATES=1` si trabajas sin red o en un entorno cerrado.
-- El flujo se completa al reemplazar el `.exe` actual con el descargado; la carpeta `build/updates/` está en `.gitignore` y prepara el terreno para integrar `updater/downloader.py` + `updater/swapper.py` y el reemplazo automático en el siguiente arranque.
+1. Copiar `.env.example` a `.env` dentro de la raíz del proyecto.
+2. Completar `SUPABASE_URL` y `SUPABASE_KEY` con las credenciales locales si se usan los servicios de Supabase.
+3. Activar el entorno virtual y ejecutar `pip install -r requirements.txt`.
 
-## Auto-update (diseño futuro)
-## Unificación de código (estado)
-- Cliente Supabase unificado en `plotmaster/core/services/supabase_service.py` (carga `.env` raíz y de cada app, cache referencial, helpers admin/vendedor).
-- Imports actualizados a paquete `plotmaster.*` (ejecución con `-m`).
-- Pendiente: centralizar temas/widgets en `plotmaster/core/ui` y settings en `plotmaster/core/config`.
+## Ejecución local
 
-## Próximos pasos sugeridos
-- Migrar archivos actuales a la estructura objetivo manteniendo imports relativos (usar un paquete raíz, ej. `plotmaster`).
-- Extraer duplicados de servicios (`supabase_service`), login y layouts a `core/`.
-- Añadir tests mínimos de servicios críticos (supabase mocks) antes de tocar lógica sensible.
-- Completar `requirements.txt` y scripts de build.
+1. Desde la raíz del proyecto ejecutar:
+   ```
+   python ejecutar.py
+   ```
+2. Elegir `1` para el Programa Administrador o `2` para el Programa Vendedor desde el menú interactivo.
+3. Cada programa instanciará su ventana en `customtkinter` y seguirá ejecutándose hasta que el usuario la cierre.
+
+## Generar un ejecutable (.exe)
+
+1. Asegurarse de tener PyInstaller instalado (`pip install pyinstaller`).
+2. Ejecutar `python generar_exe.py`.
+3. Elegir `1` (Administrador) o `2` (Vendedor); el script compilará la aplicación y dejará el binario en `dist/<app>/PlotMaster_<App>.exe`.
+4. Cada compilación usa `--onefile` y trabaja en carpetas separadas bajo `dist/` y `build/` para evitar mezclar salidas.
+
+El proyecto ahora es local y autónomo: no hay actualizaciones automáticas, GitHub Releases ni lógica de versión. Solo el launcher, los programas activos y la herramienta de empaquetado.

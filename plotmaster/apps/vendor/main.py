@@ -1,15 +1,11 @@
 import customtkinter as ctk
 from plotmaster.apps.vendor.ui.auth.login_view import LoginFrame
 from plotmaster.apps.vendor.ui.main_app.main_windows import MainAppFrame
-from plotmaster.apps.vendor.ui.modules.work_orders.ot_registration_view import crear_modulo_ot
-from updater import check_for_updates
 
 
 def main():
     ctk.set_appearance_mode("Light")
     ctk.set_default_color_theme("blue")
-
-    check_for_updates("vendor")
 
     root = ctk.CTk()
     root.title("Plot Master")
