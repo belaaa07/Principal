@@ -16,29 +16,51 @@ try:
 except Exception:
     DateEntry = None
 
-from plotmaster.core.services.supabase_service import get_finalized_work_orders_between
+from plotmaster.core.services.supabase_service import get_work_orders_between
 
 
-class ReporteMensualOT(ctk.CTkFrame):
-    """Módulo para descargar reporte mensual en Excel estilado para uso inmediato."""
+class BaseReporteExcelOT(ctk.CTkFrame):
+    """Componente reutilizable para exportar OTs a Excel con filtros estándar."""
 
-    def __init__(self, parent, **kwargs):
+    def __init__(
+        self,
+        parent,
+        *,
+        title: str,
+        subtitle: str,
+        status_filter: str = None,
+        forma_pago_filter: str = None,
+        filename_prefix: str = "reporte_ot",
+        filename_suffix: str = "",
+        sheet_title: str = "OT",
+        empty_message: str = "Sin datos en el rango indicado.",
+        **kwargs,
+    ):
         super().__init__(parent, fg_color="transparent", **kwargs)
+        self.title_text = title
+        self.subtitle_text = subtitle
+        self.status_filter = status_filter
+        self.forma_pago_filter = forma_pago_filter
+        self.filename_prefix = filename_prefix
+        self.filename_suffix = filename_suffix
+        self.sheet_title = sheet_title
+        self.empty_message = empty_message
         self._build_ui()
 
+    # UI -----------------------------------------------------------------
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
 
         header = ctk.CTkLabel(
             self,
-            text="Reporte mensual",
+            text=self.title_text,
             font=ctk.CTkFont(size=22, weight="bold"),
         )
         header.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 6))
 
         subtitle = ctk.CTkLabel(
             self,
-            text="Descarga un Excel listo para entregar.",
+            text=self.subtitle_text,
             font=ctk.CTkFont(size=13),
             text_color="#4b5563",
             wraplength=720,
@@ -50,12 +72,9 @@ class ReporteMensualOT(ctk.CTkFrame):
         card.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
         card.grid_columnconfigure((0, 1, 2), weight=1)
 
-        # Fecha desde
         self.fecha_desde_widget = self._create_date_input(card, "Fecha desde", 0)
-        # Fecha hasta
         self.fecha_hasta_widget = self._create_date_input(card, "Fecha hasta", 1)
 
-        # Rango rápido
         rango_frame = ctk.CTkFrame(card, fg_color="transparent")
         rango_frame.grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
         ctk.CTkLabel(rango_frame, text="Atajos de rango", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
@@ -69,16 +88,14 @@ class ReporteMensualOT(ctk.CTkFrame):
         self.rango_picker.pack(fill="x", pady=(8, 2))
         ctk.CTkLabel(rango_frame, text="Aplicamos las fechas automáticamente.", font=ctk.CTkFont(size=11), text_color="#6b7280").pack(anchor="w")
 
-        # Orden
         orden_frame = ctk.CTkFrame(card, fg_color="transparent")
-        orden_frame.grid(row=1, column=0, padx=10, pady=(0,10), sticky="nsew")
+        orden_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
         ctk.CTkLabel(orden_frame, text="Orden por fecha", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
         self.orden_var = ctk.StringVar(value="desc")
         self.orden_picker = ctk.CTkSegmentedButton(orden_frame, values=["asc", "desc"], variable=self.orden_var)
         self.orden_picker.pack(fill="x", pady=(8, 0))
         ctk.CTkLabel(orden_frame, text="Desc: más recientes primero", font=ctk.CTkFont(size=11), text_color="#6b7280").pack(anchor="w", pady=(4, 0))
 
-        # Botón descarga
         self.btn_descargar = ctk.CTkButton(
             card,
             text="📊 Exportar Excel",
@@ -90,7 +107,6 @@ class ReporteMensualOT(ctk.CTkFrame):
         )
         self.btn_descargar.grid(row=1, column=1, columnspan=2, padx=10, pady=(0, 12), sticky="ew")
 
-        # Estado
         self.status_label = ctk.CTkLabel(card, text="", text_color="#374151")
         self.status_label.grid(row=2, column=0, columnspan=3, padx=10, pady=(0, 10), sticky="w")
 
@@ -116,6 +132,7 @@ class ReporteMensualOT(ctk.CTkFrame):
         ctk.CTkLabel(input_card, text="Formato: yyyy-mm-dd", font=ctk.CTkFont(size=10), text_color="#6b7280").pack(anchor="w", padx=10, pady=(0, 8))
         return picker
 
+    # Lógica --------------------------------------------------------------
     def _on_rango_change(self, selected):
         hoy = date.today()
         if selected == "Mes actual":
@@ -162,7 +179,13 @@ class ReporteMensualOT(ctk.CTkFrame):
         threading.Thread(target=self._fetch_data_async, args=(f_ini, f_fin, sort_desc), daemon=True).start()
 
     def _fetch_data_async(self, f_ini, f_fin, sort_desc):
-        ok, data = get_finalized_work_orders_between(f_ini, f_fin, sort_desc=sort_desc)
+        ok, data = get_work_orders_between(
+            f_ini,
+            f_fin,
+            sort_desc=sort_desc,
+            status=self.status_filter,
+            forma_pago=self.forma_pago_filter,
+        )
         self.after(0, lambda: self._after_data_fetch(ok, data, f_ini, f_fin))
 
     def _after_data_fetch(self, ok, data, f_ini, f_fin):
@@ -172,13 +195,14 @@ class ReporteMensualOT(ctk.CTkFrame):
             self.status_label.configure(text="", text_color="#b91c1c")
             return
 
-        filtered = [r for r in (data or []) if str(r.get('status') or '').lower() == 'finalizado']
+        filtered = [r for r in (data or []) if self._matches_filters(r)]
         if not filtered:
-            messagebox.showinfo("Sin datos", "No hay órdenes finalizadas en el rango indicado.")
+            messagebox.showinfo("Sin datos", self.empty_message)
             self.status_label.configure(text="")
             return
 
-        default_name = f"reporte_ot_{f_ini.isoformat()}_{f_fin.isoformat()}_FINALIZADAS.xlsx"
+        suffix = f"_{self.filename_suffix}" if self.filename_suffix else ""
+        default_name = f"{self.filename_prefix}_{f_ini.isoformat()}_{f_fin.isoformat()}{suffix}.xlsx"
         path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             initialfile=default_name,
@@ -196,10 +220,11 @@ class ReporteMensualOT(ctk.CTkFrame):
             messagebox.showerror("Error al escribir archivo", str(e))
             self.status_label.configure(text="No se pudo guardar el archivo.", text_color="#b91c1c")
 
+    # Excel ---------------------------------------------------------------
     def _write_excel(self, path, rows):
         wb = Workbook()
         ws = wb.active
-        ws.title = "OT Finalizadas"
+        ws.title = self.sheet_title
 
         headers = [
             ("OT", 'ot_nro'),
@@ -265,7 +290,6 @@ class ReporteMensualOT(ctk.CTkFrame):
             cell.border = thin_border
             ws.column_dimensions[col_letter].width = col_widths.get(col_letter, 16)
 
-        # Dar formato de moneda y alineaciones
         for row_idx in range(2, ws.max_row + 1):
             ws.cell(row=row_idx, column=2).number_format = "yyyy-mm-dd"
             ws.cell(row=row_idx, column=12).number_format = "yyyy-mm-dd"
@@ -285,3 +309,56 @@ class ReporteMensualOT(ctk.CTkFrame):
         ws.freeze_panes = "A2"
 
         wb.save(path)
+
+    # Utilidades ---------------------------------------------------------
+    def _normalize_text(self, value):
+        text = str(value or '').strip().lower()
+        for orig, repl in (
+            ('á', 'a'), ('é', 'e'), ('í', 'i'), ('ó', 'o'), ('ú', 'u'), ('ü', 'u'),
+        ):
+            text = text.replace(orig, repl)
+        return text
+
+    def _matches_filters(self, row: dict) -> bool:
+        if self.status_filter:
+            if self._normalize_text(row.get('status')) != self._normalize_text(self.status_filter):
+                return False
+        if self.forma_pago_filter:
+            if self._normalize_text(row.get('forma_pago')) != self._normalize_text(self.forma_pago_filter):
+                return False
+        return True
+
+
+class ReporteMensualOT(BaseReporteExcelOT):
+    """Reporte mensual (OT finalizadas)."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(
+            parent,
+            title="Reporte mensual",
+            subtitle="Descarga un Excel listo para entregar.",
+            status_filter="Finalizado",
+            filename_prefix="reporte_ot",
+            filename_suffix="FINALIZADAS",
+            sheet_title="OT Finalizadas",
+            empty_message="No hay órdenes finalizadas en el rango indicado.",
+            **kwargs,
+        )
+
+
+class ReporteCreditoOT(BaseReporteExcelOT):
+    """Reporte de crédito: entregadas y con forma de pago crédito."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(
+            parent,
+            title="Reporte de Crédito",
+            subtitle="Exporta solo OTs ENTREGADAS con forma de pago CRÉDITO.",
+            status_filter="Entregado",
+            forma_pago_filter="Crédito",
+            filename_prefix="reporte_ot_credito",
+            filename_suffix="CREDITO",
+            sheet_title="OT Crédito",
+            empty_message="No hay órdenes ENTREGADAS con pago CRÉDITO en el rango indicado.",
+            **kwargs,
+        )

@@ -2,7 +2,7 @@ import customtkinter as ctk
 from ..modules.work_orders_list.ot_registration_list_adm import ModuloOTs
 from ..modules.client.client_registration import ModuloClientes
 from ..modules.users.users import ModuloAccesos
-from ..modules.reports.ot_monthly_report import ReporteMensualOT
+from ..modules.reports.ot_monthly_report import ReporteMensualOT, ReporteCreditoOT
 
 # ==========================================================================
 # CLASE 1: Módulo de Órdenes de Trabajo (Contiene las Subpestañas)
@@ -189,16 +189,19 @@ class MainAppFrame(ctk.CTkFrame):
         self.reporte_button = create_nav_button(5, "📥  Reporte mensual", "reporte_mensual")
         self.reporte_button.grid(row=5, column=0, sticky="ew", padx=10, pady=(6,4))
 
+        self.reporte_credito_button = create_nav_button(6, "💳  Reporte de Crédito", "reporte_credito")
+        self.reporte_credito_button.grid(row=6, column=0, sticky="ew", padx=10, pady=(0,4))
+
         # SECCIÓN: Catálogo (Clientes)
-        ctk.CTkLabel(self.navigation_frame, text="CATÁLOGO", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=6, column=0, padx=16, pady=(18,8), sticky="w")
-        self.clientes_button = create_nav_button(7, "👥  Clientes", "clientes")
-        self.clientes_button.grid(row=7, column=0, sticky="ew", padx=10, pady=(6,4))
+        ctk.CTkLabel(self.navigation_frame, text="CATÁLOGO", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=7, column=0, padx=16, pady=(18,8), sticky="w")
+        self.clientes_button = create_nav_button(8, "👥  Clientes", "clientes")
+        self.clientes_button.grid(row=8, column=0, sticky="ew", padx=10, pady=(6,4))
         # (Reportes eliminado)
 
         # SECCIÓN: Administrador de accesos
-        ctk.CTkLabel(self.navigation_frame, text="ADMIN. ACCESOS", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=8, column=0, padx=16, pady=(18,8), sticky="w")
-        self.usuarios_button = create_nav_button(9, "🔐  Usuarios", "usuarios")
-        self.usuarios_button.grid(row=9, column=0, sticky="ew", padx=10, pady=(6,4))
+        ctk.CTkLabel(self.navigation_frame, text="ADMIN. ACCESOS", font=ctk.CTkFont(size=12, weight="bold"), text_color="#DAD7E6").grid(row=9, column=0, padx=16, pady=(18,8), sticky="w")
+        self.usuarios_button = create_nav_button(10, "🔐  Usuarios", "usuarios")
+        self.usuarios_button.grid(row=10, column=0, sticky="ew", padx=10, pady=(6,4))
 
         # ------------------------------------------------------------------
         # 5. Marcos de Contenido (Módulos) - ¡Conexión!
@@ -252,6 +255,12 @@ class MainAppFrame(ctk.CTkFrame):
         reporte_frame = ReporteMensualOT(self.central_container)
         reporte_frame.grid(row=0, column=0, sticky="nsew")
 
+    def _show_reporte_credito(self):
+        self._clear_central()
+        self.central_container.grid_columnconfigure(0, weight=1)
+        reporte_frame = ReporteCreditoOT(self.central_container)
+        reporte_frame.grid(row=0, column=0, sticky="nsew")
+
     def _show_clientes(self):
         self._clear_central()
         self.central_container.grid_columnconfigure(0, weight=1)
@@ -262,7 +271,13 @@ class MainAppFrame(ctk.CTkFrame):
 
     def select_frame_by_name(self, name):
         # Lógica de navegación principal (sidebar)
-        buttons = [self.ordenes_list_button, getattr(self, 'reporte_button', None), self.clientes_button, getattr(self, 'usuarios_button', None)]
+        buttons = [
+            self.ordenes_list_button,
+            getattr(self, 'reporte_button', None),
+            getattr(self, 'reporte_credito_button', None),
+            self.clientes_button,
+            getattr(self, 'usuarios_button', None),
+        ]
         for button in buttons:
             try:
                 if button:
@@ -282,6 +297,13 @@ class MainAppFrame(ctk.CTkFrame):
             except Exception:
                 pass
             self._show_reporte_mensual()
+        elif name == "reporte_credito":
+            try:
+                if hasattr(self, 'reporte_credito_button'):
+                    self.reporte_credito_button.configure(fg_color=active_color)
+            except Exception:
+                pass
+            self._show_reporte_credito()
         elif name == "clientes":
             self.clientes_button.configure(fg_color=active_color)
             self._show_clientes()

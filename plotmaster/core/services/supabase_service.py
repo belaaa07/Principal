@@ -360,11 +360,11 @@ def get_all_work_orders():
         return False, f"Error inesperado al obtener las órdenes de trabajo: {e}"
 
 
-def get_finalized_work_orders_between(fecha_desde, fecha_hasta, sort_desc=False):
-    """Obtiene OTs finalizadas entre dos fechas (inclusive) ordenadas por fecha de creación.
+def get_work_orders_between(fecha_desde, fecha_hasta, sort_desc=False, status: str = None, forma_pago: str = None):
+    """Obtiene OTs entre fechas con filtros opcionales por `status` y `forma_pago`.
 
-    fecha_desde / fecha_hasta aceptan date, datetime o string ISO (yyyy-mm-dd).
-    sort_desc=True ordena descendente; por defecto ascendente para lectura cronológica.
+    Aplica filtros en la consulta y vuelve a validar en Python para tolerar diferencias
+    de mayúsculas/minúsculas o acentos.
     """
     if not supabase:
         return False, "No hay conexión con la base de datos."
@@ -375,15 +375,23 @@ def get_finalized_work_orders_between(fecha_desde, fecha_hasta, sort_desc=False)
         if not f_ini or not f_fin:
             return False, "Fechas inválidas o faltantes."
 
+        status_norm = _normalize_text(status)
+        forma_pago_norm = _normalize_text(forma_pago)
+
         qb = (
             supabase
             .table('ordenes_trabajo')
             .select('id,ot_nro,cliente_id,vendedor_id,descripcion,valor_total,abonado_total,forma_pago,solicita_envio,status,fecha_creacion,fecha_entrega,created_at')
-            .eq('status', 'Finalizado')
             .gte('fecha_creacion', f_ini)
             .lte('fecha_creacion', f_fin)
             .order('fecha_creacion', desc=bool(sort_desc))
         )
+
+        if status:
+            qb = qb.ilike('status', status)
+        if forma_pago:
+            qb = qb.ilike('forma_pago', forma_pago)
+
         resp = qb.execute()
         rows = resp.data or []
 
@@ -412,10 +420,23 @@ def get_finalized_work_orders_between(fecha_desde, fecha_hasta, sort_desc=False)
                 'status': r.get('status') or '',
             })
 
-        return True, enriched
+        filtered = []
+        for row in enriched:
+            if status_norm and _normalize_text(row.get('status')) != status_norm:
+                continue
+            if forma_pago_norm and _normalize_text(row.get('forma_pago')) != forma_pago_norm:
+                continue
+            filtered.append(row)
+
+        return True, filtered
     except Exception as e:
-        print(f"Error al obtener reporte de OTs finalizadas: {e}")
-        return False, f"Error al obtener OTs finalizadas: {e}"
+        print(f"Error al obtener reporte de OTs: {e}")
+        return False, f"Error al obtener OTs: {e}"
+
+
+def get_finalized_work_orders_between(fecha_desde, fecha_hasta, sort_desc=False):
+    """Mantiene compatibilidad para obtener solo OTs finalizadas."""
+    return get_work_orders_between(fecha_desde, fecha_hasta, sort_desc=sort_desc, status='Finalizado')
 
 
 def get_work_order_by_ot(ot_nro):
@@ -519,6 +540,15 @@ def _format_date_value(value):
         return value.isoformat()
     text = str(value).strip()
     return text if text else None
+
+
+def _normalize_text(value):
+    text = str(value or '').strip().lower()
+    for orig, repl in (
+        ('á', 'a'), ('é', 'e'), ('í', 'i'), ('ó', 'o'), ('ú', 'u'), ('ü', 'u'),
+    ):
+        text = text.replace(orig, repl)
+    return text
 
 
 def update_work_order_status(ot_nro, status, fecha_entrega=None):
