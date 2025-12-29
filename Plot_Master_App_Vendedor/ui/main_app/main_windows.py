@@ -246,13 +246,13 @@ class MainAppFrame(ctk.CTkFrame):
 
     def _show_ordenes(self):
         self._clear_central()
-        crear_modulo_ot_embedded(parent=self.central_container, vendedor=self.user_ci or self.user_name)
+        crear_modulo_ot_embedded(parent=self.central_container, vendedor=self.user_ci or self.user_name, vendedor_nombre=self.user_name)
 
     def _show_ordenes_list(self):
         self._clear_central()
         from ..modules.work_orders_list.ot_registration_list import ModuloOTs
         self.central_container.grid_columnconfigure(0, weight=1)
-        ordenes_list_frame = ModuloOTs(self.central_container, vendedor=self.user_ci or self.user_name)
+        ordenes_list_frame = ModuloOTs(self.central_container, vendedor=self.user_ci or self.user_name, vendedor_nombre=self.user_name)
         ordenes_list_frame.grid(row=0, column=0, sticky="nsew")
 
     def select_frame_by_name(self, name):

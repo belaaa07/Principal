@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 import threading
@@ -21,14 +22,32 @@ ctk.set_default_color_theme("blue")
 FORMA_PAGO_OPTIONS = ["Contado", "Crédito"]
 ENVIO_OPTIONS = ["Con Envío", "Sin Envío (Retira)"]
 
-def _to_int_amount(valor):
-    try:
-        return int(round(float(valor or 0)))
-    except Exception:
+
+def _clean_amount(valor) -> int:
+    if isinstance(valor, (int, float)):
+        try:
+            return int(round(valor))
+        except Exception:
+            return 0
+    s = str(valor).strip()
+    neg = s.startswith("-")
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if not digits:
         return 0
+    num = int(digits)
+    return -num if neg else num
+
+
+def _to_int_amount(valor):
+    return _clean_amount(valor)
+
 
 def _format_gs(valor):
-    return f"{_to_int_amount(valor):,} Gs."
+    return f"{_to_int_amount(valor):,} Gs.".replace(",", ".")
+
+
+def _format_amount_text(valor):
+    return f"{_to_int_amount(valor):,}".replace(",", ".")
 
 def _format_date_detail(raw_fecha):
     if not raw_fecha:
@@ -52,20 +71,37 @@ class VentanaAbono(ctk.CTkToplevel):
         self.attributes("-topmost", True)
         self.grab_set()
 
+        self._fmt_lock = False
+        self.monto_var = tk.StringVar()
+        self._attach_currency_format(self.monto_var)
+
         ctk.CTkLabel(self, text="Monto del Abono (Gs.):", font=("Arial", 13, "bold")).pack(pady=15)
-        self.entry_monto = ctk.CTkEntry(self, placeholder_text="Ej: 100000", width=180)
+        self.entry_monto = ctk.CTkEntry(self, placeholder_text="Ej: 100000", width=180, textvariable=self.monto_var)
         self.entry_monto.pack(pady=5)
         
         self.btn_confirmar = ctk.CTkButton(self, text="Confirmar Pago", fg_color="#27AE60", hover_color="#219150", command=self.enviar_datos)
         self.btn_confirmar.pack(pady=25)
 
     def enviar_datos(self):
-        monto = self.entry_monto.get()
-        if monto.isdigit():
-            self.callback(int(monto))
+        monto = _clean_amount(self.monto_var.get())
+        if monto:
+            self.callback(monto)
             self.destroy()
         else:
             messagebox.showerror("Error", "Ingrese un monto válido.")
+
+    def _attach_currency_format(self, var: tk.StringVar):
+        def _on_change(*_):
+            if self._fmt_lock:
+                return
+            self._fmt_lock = True
+            raw = "".join(ch for ch in var.get() if ch.isdigit())
+            var.set(_format_amount_text(raw) if raw else "")
+            self._fmt_lock = False
+        try:
+            var.trace_add("write", _on_change)
+        except Exception:
+            pass
 
 class ModuloOTs(ctk.CTkFrame):
     def __init__(self, parent, admin_context=None):
@@ -75,6 +111,9 @@ class ModuloOTs(ctk.CTkFrame):
         self.datos_ots = []
         self.ot_seleccionada = None
         self.admin_context = admin_context or {}
+        self._fmt_lock = False
+        self.precio_total_var = tk.StringVar()
+        self._attach_currency_format(self.precio_total_var)
         # Cache de detalles para minimizar llamadas repetidas a Supabase
         self.detalle_cache = {}
         # Control de carga de detalle para no bloquear la UI
@@ -232,7 +271,6 @@ class ModuloOTs(ctk.CTkFrame):
         self.info_container = ctk.CTkFrame(self.frame_det, fg_color="transparent")
         self.info_container.pack(fill="x", padx=10, pady=10)
 
-        self.lbl_ot_nro = self.crear_dato("OT Nro:")
         self.lbl_vendedor = self.crear_dato("Vendedor:")
         self.lbl_cliente = self.crear_dato("Cliente:")
         self.lbl_envio = self.crear_combo_dato("Tipo Envío:", ENVIO_OPTIONS)
@@ -255,7 +293,7 @@ class ModuloOTs(ctk.CTkFrame):
         f_precio = ctk.CTkFrame(self.info_container, fg_color="transparent")
         f_precio.pack(fill="x", pady=2)
         ctk.CTkLabel(f_precio, text="Precio Total:", font=("Arial", 11, "bold"), width=90, anchor="w").pack(side="left")
-        self.entry_precio_total = ctk.CTkEntry(f_precio, width=170, height=25)
+        self.entry_precio_total = ctk.CTkEntry(f_precio, width=170, height=25, textvariable=self.precio_total_var)
         self.entry_precio_total.pack(side="left")
 
         self.btn_guardar_pago_envio = ctk.CTkButton(self.frame_det, text="Guardar datos", height=35, fg_color="#2980B9", command=self.guardar_pago_envio)
@@ -414,12 +452,12 @@ class ModuloOTs(ctk.CTkFrame):
 
     def actualizar_precio_total(self):
         if not self.ot_seleccionada: return
-        nuevo_m = self.entry_precio_total.get()
-        if nuevo_m.isdigit():
+        nuevo_m = _clean_amount(self.entry_precio_total.get())
+        if nuevo_m:
             ot_n = self.ot_seleccionada.get('ot')
-            ok, msg = update_work_order_value(ot_n, int(nuevo_m))
+            ok, msg = update_work_order_value(ot_n, nuevo_m)
             if ok:
-                self.ot_seleccionada['monto'] = int(nuevo_m)
+                self.ot_seleccionada['monto'] = nuevo_m
                 # Invalidar cache para forzar recarga con datos frescos
                 self.detalle_cache.pop(str(ot_n), None)
                 self.refrescar_detalle()
@@ -477,7 +515,6 @@ class ModuloOTs(ctk.CTkFrame):
             self._update_estado_chip(estado_lower, estado_texto)
         except Exception:
             pass
-        self.lbl_ot_nro.configure(text=d['ot'])
         self.lbl_vendedor.configure(text=d['vendedor'])
         self.lbl_cliente.configure(text=d['cliente'])
         self.lbl_desc.configure(text=d['descripcion'] or "---")
@@ -487,8 +524,7 @@ class ModuloOTs(ctk.CTkFrame):
         self.lbl_pago.set(pago_actual)
         envio_flag = bool(d.get('solicita_envio'))
         self.lbl_envio.set(_envio_label_from_flag(envio_flag))
-        self.entry_precio_total.delete(0, 'end')
-        self.entry_precio_total.insert(0, str(_to_int_amount(d.get('monto'))))
+        self.precio_total_var.set(_format_amount_text(d.get('monto')))
 
         for w in self.container_historial.winfo_children(): w.destroy()
         if d.get('abonado_total') is not None:
@@ -606,7 +642,7 @@ class ModuloOTs(ctk.CTkFrame):
         nuevo_val = None
         try:
             if nuevo_text != '':
-                nuevo_val = int(round(float(nuevo_text)))
+                nuevo_val = _clean_amount(nuevo_text)
                 precio_actual = _to_int_amount(self.ot_seleccionada.get('monto'))
                 if nuevo_val != precio_actual:
                     precio_cambiado = True
@@ -708,6 +744,19 @@ class ModuloOTs(ctk.CTkFrame):
                 self.refrescar_detalle()
             else:
                 messagebox.showerror("Error", f"No se pudo cambiar estado: {msg}")
+
+    def _attach_currency_format(self, var: tk.StringVar):
+        def _on_change(*_):
+            if self._fmt_lock:
+                return
+            self._fmt_lock = True
+            raw = "".join(ch for ch in var.get() if ch.isdigit())
+            var.set(_format_amount_text(raw) if raw else "")
+            self._fmt_lock = False
+        try:
+            var.trace_add("write", _on_change)
+        except Exception:
+            pass
     
     def abrir_modal_entrega(self):
         # Modal que pide fecha de entrega obligatoria
@@ -829,7 +878,6 @@ class ModuloOTs(ctk.CTkFrame):
                     self.detalle_cache.pop(str(ot_nro), None)
                     self.actualizar_tabla()
                     # Limpiar textos de detalle
-                    self.lbl_ot_nro.configure(text="---")
                     messagebox.showinfo("Rechazada", "La OT ha sido marcada como rechazada.")
                 else:
                     messagebox.showerror("Error", f"No se pudo actualizar la OT: {msg}")

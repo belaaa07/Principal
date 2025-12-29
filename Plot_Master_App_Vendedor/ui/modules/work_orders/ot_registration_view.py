@@ -27,6 +27,25 @@ CIUDADES_CENTRAL = [
     "Ypacaraí", "Otro" 
 ]
 
+
+def _clean_amount(valor) -> int:
+    if isinstance(valor, (int, float)):
+        try:
+            return int(round(valor))
+        except Exception:
+            return 0
+    s = str(valor).strip()
+    neg = s.startswith("-")
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if not digits:
+        return 0
+    num = int(digits)
+    return -num if neg else num
+
+
+def _format_amount_text(valor) -> str:
+    return f"{_clean_amount(valor):,}".replace(",", ".")
+
 # --- FUNCIONES DEL MÓDULO DE REGISTRO DE CLIENTES (Módulo 2) ---
 
 def guardar_cliente(ventana, nombre, ci_ruc, telefono, zona, email):
@@ -161,7 +180,7 @@ def abrir_modulo_registro_cliente(parent=None):
 # undefined global variables and to keep state encapsulated. Use `OTForm.validar_y_buscar`
 # and `OTForm.guardar_ot` when interacting with the form.
 
-def crear_modulo_ot(parent=None, vendedor=None):
+def crear_modulo_ot(parent=None, vendedor=None, vendedor_nombre=None):
     """Crea una ventana `Toplevel` y embebe el `OTForm` (compatibilidad con usos anteriores)."""
     root = tk.Toplevel(master=parent) if parent is not None else tk.Toplevel()
     root.title("🏷️ Módulo de Orden de Trabajo")
@@ -171,7 +190,7 @@ def crear_modulo_ot(parent=None, vendedor=None):
 
 
     # Montar el formulario embebido dentro del Toplevel
-    form = OTForm(root, vendedor=vendedor)
+    form = OTForm(root, vendedor=vendedor, vendedor_nombre=vendedor_nombre)
     form.pack(fill="both", expand=True, padx=8, pady=8)
 
     try:
@@ -190,10 +209,11 @@ def crear_modulo_ot(parent=None, vendedor=None):
 # VERSIÓN EMBEBIDA (customtkinter) - REDISEÑADA
 # -------------------------
 class OTForm(ctk.CTkFrame):
-    def __init__(self, parent, vendedor=None, *args, **kwargs):
+    def __init__(self, parent, vendedor=None, vendedor_nombre=None, *args, **kwargs):
         super().__init__(parent, fg_color="#f8f9fa", *args, **kwargs)
         self.parent = parent
         self.vendedor = vendedor
+        self.vendedor_nombre = vendedor_nombre or vendedor or ""
 
         # --- Variables ---
         self.ot_var = tk.StringVar(value=str(get_next_ot_number()))
@@ -207,6 +227,11 @@ class OTForm(ctk.CTkFrame):
         self.envio_var = tk.IntVar(value=0) # 0: No, 1: Si
         self.phone_var = tk.StringVar()
         self.email_var = tk.StringVar()
+
+        # Formato de moneda en vivo (Gs.)
+        self._fmt_lock = False
+        self._attach_currency_format(self.valor_var)
+        self._attach_currency_format(self.sena_var)
         
         # --- Configuración del Layout Principal ---
         self.grid_columnconfigure(0, weight=1)
@@ -298,7 +323,7 @@ class OTForm(ctk.CTkFrame):
         ctk.CTkLabel(order_box, textvariable=self.fecha_var).grid(row=1, column=3, sticky="w", padx=5, pady=(15,5))
 
         ctk.CTkLabel(order_box, text="Vendedor:").grid(row=2, column=0, sticky="w", padx=15, pady=5)
-        ctk.CTkLabel(order_box, text=self.vendedor or "No Asignado", text_color="#2980b9", font=ctk.CTkFont(weight="bold")).grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        ctk.CTkLabel(order_box, text=self.vendedor_nombre or "No Asignado", text_color="#2980b9", font=ctk.CTkFont(weight="bold")).grid(row=2, column=1, sticky="w", padx=5, pady=5)
 
 
         # --- Caja de Detalles del Equipo/Trabajo ---
@@ -354,6 +379,19 @@ class OTForm(ctk.CTkFrame):
     def _on_pago_changed(self, value):
         self.pago_var.set(1 if value == "Crédito" else 2)
 
+    def _attach_currency_format(self, var: tk.StringVar):
+        def _on_change(*_):
+            if self._fmt_lock:
+                return
+            self._fmt_lock = True
+            raw = "".join(ch for ch in var.get() if ch.isdigit())
+            var.set(_format_amount_text(raw) if raw else "")
+            self._fmt_lock = False
+        try:
+            var.trace_add("write", _on_change)
+        except Exception:
+            pass
+
     def abrir_registro_cliente(self):
         abrir_modulo_registro_cliente(parent=self)
 
@@ -381,15 +419,12 @@ class OTForm(ctk.CTkFrame):
     def guardar_ot(self):
         try:
             self.descripcion_var.set(self.desc_textbox.get("1.0", "end-1c").strip())
-            
-            valor_str = self.valor_var.get().replace('.', '').replace(',', '')
-            sena_str = self.sena_var.get().replace('.', '').replace(',', '')
 
-            if not valor_str.isdigit(): raise ValueError("El campo 'Valor Total' solo debe contener números.")
-            if not sena_str.isdigit(): raise ValueError("El campo 'Seña' solo debe contener números.")
+            valor = _clean_amount(self.valor_var.get())
+            sena = _clean_amount(self.sena_var.get())
 
-            valor = float(valor_str)
-            sena = float(sena_str)
+            if valor <= 0:
+                raise ValueError("El campo 'Valor Total' debe contener un monto válido.")
 
             ot_nro = self.ot_var.get()
             fecha = self.fecha_var.get()
@@ -405,16 +440,16 @@ class OTForm(ctk.CTkFrame):
             fecha_iso = datetime.strptime(fecha, "%d/%m/%Y").strftime("%Y-%m-%d")
 
             datos_a_guardar = {
-                "ot_nro": int(ot_nro), "fecha": fecha_iso, "ci_ruc": ci_ruc, "valor": valor, "sena": sena,
+                  "ot_nro": int(ot_nro), "fecha": fecha_iso, "ci_ruc": ci_ruc, "valor": valor, "sena": sena,
                 "forma_pago": forma_pago, "envio_status": bool(envio_status), "status": "Pendiente",
                 "descripcion": self.descripcion_var.get() or None,
-                "vendedor": self.vendedor or None
+                "vendedor": self.vendedor or self.vendedor_nombre or None
             }
             
             resumen = (f"  - OT Nro: {ot_nro}\n"
                        f"  - Cliente: {nombre}\n"
-                       f"  - Valor: Gs. {valor:,.0f}\n"
-                       f"  - Seña: Gs. {sena:,.0f}\n"
+                      f"  - Valor: Gs. {_format_amount_text(valor)}\n"
+                      f"  - Seña: Gs. {_format_amount_text(sena)}\n"
                        f"  - Descripción: {datos_a_guardar['descripcion'] or 'N/A'}")
             
             if not messagebox.askyesno("Confirmar Guardado", f"¿Desea guardar la siguiente Orden de Trabajo?\n\n{resumen}"):
@@ -433,7 +468,7 @@ class OTForm(ctk.CTkFrame):
             messagebox.showerror("Error Desconocido", f"Ocurrió un error inesperado al guardar: {e}")
 
 
-def crear_modulo_ot_embedded(parent=None, vendedor=None):
+def crear_modulo_ot_embedded(parent=None, vendedor=None, vendedor_nombre=None):
     """Crea e inserta el formulario de OT como un `CTkFrame` embebido y lo retorna."""
     if parent is None:
         return None
@@ -441,6 +476,6 @@ def crear_modulo_ot_embedded(parent=None, vendedor=None):
         child.destroy()
     parent.grid_rowconfigure(0, weight=1)
     parent.grid_columnconfigure(0, weight=1)
-    form = OTForm(parent, vendedor=vendedor)
+    form = OTForm(parent, vendedor=vendedor, vendedor_nombre=vendedor_nombre)
     form.grid(row=0, column=0, sticky="nsew")
     return form

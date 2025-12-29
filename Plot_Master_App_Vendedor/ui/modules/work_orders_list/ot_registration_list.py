@@ -49,9 +49,10 @@ class OTsFrame(ctk.CTkFrame):
     """Frame embebible para mostrar la planilla y detalle de OTs.
     También se proporciona una pequeña app runner al final para pruebas standalone.
     """
-    def __init__(self, parent, vendedor: str = None, **kwargs):
+    def __init__(self, parent, vendedor: str = None, vendedor_nombre: str = None, **kwargs):
         super().__init__(parent, **kwargs)
         self.vendedor = vendedor
+        self.vendedor_nombre = vendedor_nombre or vendedor or "—"
 
         # Si el frame está usado standalone, parent puede ser la propia ventana.
         if isinstance(parent, ctk.CTk):
@@ -166,16 +167,16 @@ class OTsFrame(ctk.CTkFrame):
                             border_width=1, border_color="#D0D0D0", fg_color="#FFFFFF")
         self.frame_det.grid(row=0, column=1, padx=(0, 15), pady=15, sticky="nsew")
 
+        # Cabecera del detalle (chip OT + estado) alineado al estilo admin
+        self.header_chip = ctk.CTkFrame(self.frame_det, fg_color="#F6F8FA", corner_radius=10)
+        self.header_chip.pack(fill="x", padx=10, pady=(8, 10))
+        self.lbl_ot_chip = ctk.CTkLabel(self.header_chip, text="OT ---", font=("Segoe UI", 15, "bold"), text_color="#1F2937")
+        self.lbl_ot_chip.pack(side="left", padx=10, pady=10)
+        self.lbl_estado_chip = ctk.CTkLabel(self.header_chip, text="---", font=("Segoe UI", 12, "bold"), text_color="#FFFFFF", fg_color="#94A3B8", corner_radius=14, padx=12, pady=8)
+        self.lbl_estado_chip.pack(side="right", padx=10, pady=10)
+
         self.info_container = ctk.CTkFrame(self.frame_det, fg_color="transparent")
         self.info_container.pack(fill="x", padx=10, pady=10)
-
-        # Cabecera del detalle (OT Nro + Estado similar al diseño)
-        cab = ctk.CTkFrame(self.frame_det, fg_color="#F6F8FA")
-        cab.pack(fill="x", padx=10, pady=(6, 10))
-        self.lbl_ot_nro = ctk.CTkLabel(cab, text="---", font=("Segoe UI", 14, "bold"))
-        self.lbl_ot_nro.pack(side="left", padx=6, pady=6)
-        self.lbl_estado_chip = ctk.CTkLabel(cab, text="---", font=("Segoe UI", 11, "bold"), text_color="#FFFFFF", fg_color="#7F8C8D", width=120)
-        self.lbl_estado_chip.pack(side="right", padx=6, pady=6)
 
         self.lbl_vendedor = self.crear_dato("Vendedor:")
         self.lbl_cliente = self.crear_dato("Cliente:")
@@ -304,8 +305,9 @@ class OTsFrame(ctk.CTkFrame):
     def refrescar_detalle(self):
         d = self.ot_seleccionada
         if not d: return
-        self.lbl_ot_nro.configure(text=f"OT {d['ot']}")
-        self.lbl_vendedor.configure(text=d['vendedor'])
+        self.lbl_ot_chip.configure(text=f"OT {d['ot']}")
+        vendedor_txt = d['vendedor'] or self.vendedor_nombre
+        self.lbl_vendedor.configure(text=vendedor_txt)
         self.lbl_cliente.configure(text=d['cliente'])
         self.lbl_desc.configure(text=d['descripcion'])
         self.lbl_pago.configure(text=d['pago'])
@@ -390,6 +392,7 @@ class OTsFrame(ctk.CTkFrame):
                     or row.get('vendedor')
                     or row.get('vendedor_ci_ruc')
                     or row.get('ci_ruc_vendedor')
+                    or self.vendedor_nombre
                     or ''
                 )
                 pagos = row.get('pagos') or []

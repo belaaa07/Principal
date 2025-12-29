@@ -222,7 +222,7 @@ class ModuloClientes(ctk.CTkFrame):
         if cached is not None:
             self._render_ots_list(cached)
         else:
-            self.lbl_lista_ots.configure(text="Buscando órdenes…", text_color="gray")
+            self._safe_set_lbl_ots("Buscando órdenes…", "gray")
 
         self._ots_request_id += 1
         req_id = self._ots_request_id
@@ -240,7 +240,7 @@ class ModuloClientes(ctk.CTkFrame):
         if req_id != self._ots_request_id or ci_ruc != self._ultima_seleccion:
             return
         if not ok:
-            self.lbl_lista_ots.configure(text="No se pudieron cargar las OTs", text_color="gray")
+            self._safe_set_lbl_ots("No se pudieron cargar las OTs", "gray")
             return
         ot_list = data or []
         self.historial_ots[ci_ruc] = ot_list
@@ -248,14 +248,24 @@ class ModuloClientes(ctk.CTkFrame):
 
     def _render_ots_list(self, data):
         if not data:
-            self.lbl_lista_ots.configure(text="Sin órdenes registradas", text_color="gray")
+            self._safe_set_lbl_ots("Sin órdenes registradas", "gray")
             return
         ot_nros = [str(r.get('ot_nro') or r.get('ot') or '') for r in data]
         texto_ots = " , ".join([f"#{n}" for n in ot_nros if n])
         if texto_ots:
-            self.lbl_lista_ots.configure(text=texto_ots, text_color="black")
+            self._safe_set_lbl_ots(texto_ots, "black")
         else:
-            self.lbl_lista_ots.configure(text="Sin órdenes registradas", text_color="gray")
+            self._safe_set_lbl_ots("Sin órdenes registradas", "gray")
+
+    def _safe_set_lbl_ots(self, text: str, color: str = "black"):
+        lbl = getattr(self, "lbl_lista_ots", None)
+        try:
+            if not lbl or not lbl.winfo_exists():
+                return
+            lbl.configure(text=text, text_color=color)
+        except Exception:
+            # Si el widget ya no existe, evitar el traceback en callbacks async
+            return
 
     def guardar_cliente(self):
         if not hasattr(self, 'seleccion_ci'):
