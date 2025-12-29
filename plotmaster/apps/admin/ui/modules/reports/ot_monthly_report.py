@@ -20,7 +20,7 @@ from plotmaster.core.services.supabase_service import get_finalized_work_orders_
 
 
 class ReporteMensualOT(ctk.CTkFrame):
-    """Módulo para descargar reporte de OTs FINALIZADAS en Excel estilado para uso inmediato."""
+    """Módulo para descargar reporte mensual en Excel estilado para uso inmediato."""
 
     def __init__(self, parent, **kwargs):
         super().__init__(parent, fg_color="transparent", **kwargs)
@@ -31,14 +31,14 @@ class ReporteMensualOT(ctk.CTkFrame):
 
         header = ctk.CTkLabel(
             self,
-            text="Reporte mensual de Órdenes Finalizadas",
+            text="Reporte mensual",
             font=ctk.CTkFont(size=22, weight="bold"),
         )
         header.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 6))
 
         subtitle = ctk.CTkLabel(
             self,
-            text="Descarga un Excel listo para entregar: solo OTs FINALIZADAS, ordenables, con filtros por columna.",
+            text="Descarga un Excel listo para entregar.",
             font=ctk.CTkFont(size=13),
             text_color="#4b5563",
             wraplength=720,

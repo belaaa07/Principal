@@ -35,12 +35,18 @@ Proyecto existente dividido en dos aplicaciones de escritorio (Administrador y V
 	- Admin: `python -m plotmaster.apps.admin.main`
 	- Vendedor: `python -m plotmaster.apps.vendor.main`
 
+## Scripts de trabajo
+- Desarrollo rápido: `python ejecutar.py` abre un menú y lanza Admin o Vendedor en modo módulo (sin generar .exe).
+- Publicación automatizada: `python publicar.py` pregunta la app y la versión (v1.4.0), actualiza `config/*_version.json` y `config/remote_versions/*.json`, elimina builds previos, corre PyInstaller (spec con `onefile`) y copia el ejecutable versionado sin carpeta `internal` a `releases/access/`.
+- Los .exe generados quedan nombrados como `PlotMaster_Admin_vX.Y.Z.exe` o `PlotMaster_Vendedor_vX.Y.Z.exe`, listos para subir a GitHub Releases y compatibles con el actualizador existente.
+
 ## Unificación de código (estado)
 ## Build a .exe (PyInstaller)
 - Specs listos: `scripts/pyinstaller_admin.spec` y `scripts/pyinstaller_vendor.spec`.
 - Ejecutar desde la raíz:
 	- `pyinstaller scripts/pyinstaller_admin.spec`
 	- `pyinstaller scripts/pyinstaller_vendor.spec`
+- Ambos specs ahora definen `onefile=True`, por lo que `dist/PlotMaster_* .exe` se genera como único binario sin carpeta `internal`.
 - Salidas: `dist/` (git-ignored). Ajusta `datas` si agregas assets.
 
 ## Build a .exe (PyInstaller)

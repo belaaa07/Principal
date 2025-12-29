@@ -152,14 +152,23 @@ class ModuloClientes(ctk.CTkFrame):
         self._search_after_id = self.after(120, self.actualizar_tabla)
 
     def actualizar_tabla(self, e=None):
-        for i in self.tabla.get_children():
-            self.tabla.delete(i)
+        tabla = getattr(self, "tabla", None)
+        if not tabla or not tabla.winfo_exists():
+            return
+
+        try:
+            children = tabla.get_children()
+        except Exception:
+            return
+
+        for i in children:
+            tabla.delete(i)
         busq = self.entry_busqueda.get().lower()
         for c in self.clientes:
             nombre = c.get('nombre') or ''
             ci_ruc = c.get('ci_ruc') or ''
             if busq in nombre.lower() or busq in ci_ruc:
-                self.tabla.insert("", "end", values=(c.get('id') or '', ci_ruc, nombre, c.get('telefono') or '', c.get('email') or '', c.get('zona') or ''))
+                tabla.insert("", "end", values=(c.get('id') or '', ci_ruc, nombre, c.get('telefono') or '', c.get('email') or '', c.get('zona') or ''))
 
     def al_seleccionar_cliente(self, e):
         sel = self.tabla.selection()
@@ -296,6 +305,9 @@ class ModuloClientes(ctk.CTkFrame):
         self.after(0, lambda: self._apply_clientes(ok, data))
 
     def _apply_clientes(self, ok, data):
+        if not self.winfo_exists():
+            return
+
         self._set_loading(False)
         if not ok:
             messagebox.showwarning("Advertencia", f"No se pudo cargar clientes: {data}")
